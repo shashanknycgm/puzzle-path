@@ -121,12 +121,12 @@ export function localEvaluate(fen: string, depth = 3): PositionEval {
 }
 
 /**
- * Enrich a single puzzle's correctMove with depth-3 alpha-beta.
- * Yields the thread first so the caller can show a loading state.
+ * Enrich a single puzzle's correctMove with depth-2 alpha-beta (~100ms).
+ * Yields the thread first so the caller can update UI before computing.
  */
 export async function enrichPuzzle(puzzle: Puzzle): Promise<Puzzle> {
   await new Promise(resolve => setTimeout(resolve, 0));
-  const best = localEvaluate(puzzle.fen, 3);
+  const best = localEvaluate(puzzle.fen, 2);
   return { ...puzzle, correctMove: best.bestMove || puzzle.correctMove, enriched: true };
 }
 

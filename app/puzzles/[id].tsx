@@ -20,7 +20,7 @@ export default function PuzzleDetailScreen() {
   const router = useRouter();
 
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
-  const [enriching, setEnriching] = useState(true); // loading until depth-3 done
+  const [enriching, setEnriching] = useState(true);
   const [attempts, setAttempts] = useState(0);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [revealed, setRevealed] = useState(false);
@@ -36,30 +36,29 @@ export default function PuzzleDetailScreen() {
       const found = puzzles.find((p) => p.id === decodeURIComponent(id));
       if (!found) return;
 
-      // If already enriched (e.g. background pre-compute finished), show immediately
+      // Show board immediately with whatever correctMove we have
+      setPuzzle(found);
+
       if (found.enriched) {
-        setPuzzle(found);
         setCorrectSan(uciToSan(found.fen, found.correctMove) || found.correctMove);
         setEnriching(false);
         backgroundEnrichRest(puzzles, found.id);
         return;
       }
 
-      // Enrich this puzzle now (depth-3, ~2-3s)
+      // Enrich this puzzle (depth-2, ~100ms) then enable interaction
       const enriched = await enrichPuzzle(found);
       await storage.updatePuzzle(enriched.id, { correctMove: enriched.correctMove, enriched: true });
       setPuzzle(enriched);
       setCorrectSan(uciToSan(enriched.fen, enriched.correctMove) || enriched.correctMove);
       setEnriching(false);
 
-      // Pre-compute remaining puzzles in the background while user solves this one
       backgroundEnrichRest(puzzles, enriched.id);
     };
 
     loadAndEnrich();
   }, [id]);
 
-  /** Silently enrich all unenriched puzzles except the current one. */
   const backgroundEnrichRest = async (puzzles: Puzzle[], currentId: string) => {
     for (const p of puzzles) {
       if (p.id === currentId || p.enriched) continue;
@@ -81,11 +80,10 @@ export default function PuzzleDetailScreen() {
   };
 
   const handleMove = async ({ from, to }: MoveInfo) => {
-    if (!puzzle || solved || revealed) return;
+    if (!puzzle || solved || revealed || enriching) return;
 
     const playedUci = `${from}${to}`;
     const correctUci = puzzle.correctMove.slice(0, 4);
-
     const isCorrect = playedUci === correctUci;
 
     if (isCorrect) {
@@ -120,20 +118,10 @@ export default function PuzzleDetailScreen() {
     if (puzzle) storage.updatePuzzleResult(puzzle.id, 'failed');
   };
 
-  if (!puzzle && !enriching) {
-    return (
-      <View style={styles.center}>
-        <Text style={styles.missingText}>Puzzle not found.</Text>
-      </View>
-    );
-  }
-
-  // Show full-screen loader while enriching (before puzzle is ready)
-  if (enriching || !puzzle) {
+  if (!puzzle) {
     return (
       <View style={styles.center}>
         <ActivityIndicator color="#1B7A3E" size="large" />
-        <Text style={styles.enrichingText}>Analyzing position…</Text>
       </View>
     );
   }
@@ -143,6 +131,8 @@ export default function PuzzleDetailScreen() {
     : feedback === 'wrong'
     ? 'rgba(192,57,43,0.12)'
     : 'transparent';
+
+  const boardInteractive = !enriching && !solved && !revealed;
 
   return (
     <ScrollView style={styles.container} contentContainerStyle={styles.scroll}>
@@ -159,10 +149,17 @@ export default function PuzzleDetailScreen() {
       {/* Instruction */}
       {!solved && !revealed && (
         <View style={styles.instruction}>
-          <Text style={styles.instructionText}>
-            Find the best move for {puzzle.color === 'white' ? '⬜ White' : '⬛ Black'}
-          </Text>
-          {attempts > 0 && (
+          {enriching ? (
+            <View style={styles.analyzingRow}>
+              <ActivityIndicator color="#1B7A3E" size="small" style={{ marginRight: 8 }} />
+              <Text style={styles.analyzingText}>Analyzing best move…</Text>
+            </View>
+          ) : (
+            <Text style={styles.instructionText}>
+              Find the best move for {puzzle.color === 'white' ? '⬜ White' : '⬛ Black'}
+            </Text>
+          )}
+          {!enriching && attempts > 0 && (
             <Text style={styles.attemptsText}>
               {attempts}/3 attempts · {3 - attempts} left
             </Text>
@@ -170,7 +167,7 @@ export default function PuzzleDetailScreen() {
         </View>
       )}
 
-      {/* Feedback banner — always occupies space so the board never shifts */}
+      {/* Feedback banner */}
       <Animated.View style={[styles.feedbackBanner, { backgroundColor: bgColor, opacity: feedbackAnim }]}>
         {feedback && (
           <Text style={[styles.feedbackText, { color: feedback === 'correct' ? '#1B7A3E' : '#C0392B' }]}>
@@ -179,13 +176,13 @@ export default function PuzzleDetailScreen() {
         )}
       </Animated.View>
 
-      {/* Chessboard */}
+      {/* Chessboard — always mounted so WebView doesn't re-initialize */}
       <View style={styles.boardWrapper}>
         <ChessBoard
           key={`${boardKey}-${revealed ? 'r' : ''}-${solved ? 's' : ''}`}
           fen={puzzle.fen}
           onMove={handleMove}
-          gestureEnabled={!solved && !revealed}
+          gestureEnabled={boardInteractive}
           flipped={puzzle.color === 'black'}
           highlightSquares={
             (revealed || solved)
@@ -222,8 +219,12 @@ export default function PuzzleDetailScreen() {
       {/* Actions */}
       {!solved && !revealed && (
         <View style={styles.actions}>
-          <TouchableOpacity style={styles.hintButton} onPress={handleReveal} activeOpacity={0.8}>
-            <Text style={styles.hintText}>Show Answer</Text>
+          <TouchableOpacity
+            style={[styles.hintButton, enriching && styles.disabledButton]}
+            onPress={enriching ? undefined : handleReveal}
+            activeOpacity={enriching ? 1 : 0.8}
+          >
+            <Text style={[styles.hintText, enriching && styles.disabledText]}>Show Answer</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.skipButton} onPress={handleSkip} activeOpacity={0.8}>
             <Text style={styles.skipText}>Skip</Text>
@@ -238,8 +239,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F0' },
   scroll: { paddingBottom: 40 },
   center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  missingText: { color: '#666' },
-  enrichingText: { marginTop: 14, fontSize: 15, color: '#666' },
 
   context: {
     paddingHorizontal: 20,
@@ -255,6 +254,8 @@ const styles = StyleSheet.create({
     paddingTop: 10,
     paddingBottom: 6,
   },
+  analyzingRow: { flexDirection: 'row', alignItems: 'center' },
+  analyzingText: { fontSize: 15, color: '#666', fontStyle: 'italic' },
   instructionText: { fontSize: 16, fontWeight: '700', color: '#1a1a1a' },
   attemptsText: { fontSize: 13, color: '#C0392B', marginTop: 4 },
 
@@ -308,7 +309,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
+  disabledButton: { borderColor: '#e0e0e0' },
   hintText: { color: '#666', fontWeight: '600' },
+  disabledText: { color: '#bbb' },
   skipButton: {
     flex: 1,
     borderWidth: 1.5,
