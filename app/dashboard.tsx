@@ -55,14 +55,16 @@ export default function DashboardScreen() {
   }, [load]);
 
   const handleGeneratePuzzles = async () => {
-    if (genState === 'fetching' || genState === 'analyzing') return;
+    if (isGenerating) return;
+
+    // Show spinner immediately before any work
+    setGenState('fetching');
+    setGenProgress('Fetching your recent games…');
 
     try {
       // Reuse cached games if available, otherwise fetch
       let games = cachedGames;
       if (games.length === 0) {
-        setGenState('fetching');
-        setGenProgress('Fetching your recent games…');
         games = await getRecentGames(username, 14);
         setCachedGames(games);
       }
