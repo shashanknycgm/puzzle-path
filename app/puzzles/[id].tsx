@@ -134,14 +134,14 @@ export default function PuzzleDetailScreen() {
         </View>
       )}
 
-      {/* Feedback overlay */}
-      {feedback && (
-        <Animated.View style={[styles.feedbackBanner, { backgroundColor: bgColor, opacity: feedbackAnim }]}>
+      {/* Feedback banner — always occupies space so the board never shifts */}
+      <Animated.View style={[styles.feedbackBanner, { backgroundColor: bgColor, opacity: feedbackAnim }]}>
+        {feedback && (
           <Text style={[styles.feedbackText, { color: feedback === 'correct' ? '#1B7A3E' : '#C0392B' }]}>
             {feedback === 'correct' ? '✓ Correct!' : '✗ Not quite, try again'}
           </Text>
-        </Animated.View>
-      )}
+        )}
+      </Animated.View>
 
       {/* Chessboard */}
       <View style={styles.boardWrapper}>
@@ -222,11 +222,12 @@ const styles = StyleSheet.create({
   attemptsText: { fontSize: 13, color: '#C0392B', marginTop: 4 },
 
   feedbackBanner: {
+    height: 44,
     marginHorizontal: 20,
     marginBottom: 8,
     borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   feedbackText: { fontSize: 16, fontWeight: '700', textAlign: 'center' },
 
