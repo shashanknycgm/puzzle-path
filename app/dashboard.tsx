@@ -11,7 +11,8 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
-import { generatePuzzles } from '../services/puzzleGenerator';
+import { generatePuzzlesProgressive } from '../services/puzzleGenerator';
+import { generationState } from '../services/generationState';
 import { storage } from '../services/storage';
 
 type GenerationState = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
@@ -58,15 +59,11 @@ export default function DashboardScreen() {
   const handleGeneratePuzzles = async () => {
     if (isGenerating) return;
 
-    // Show spinner immediately before any work
     setGenState('fetching');
     setGenProgress('Fetching your recent games…');
-
-    // Yield so React can render the spinner before any blocking work
     await new Promise(resolve => setTimeout(resolve, 50));
 
     try {
-      // Reuse cached games if available, otherwise fetch
       let games = cachedGames;
       if (games.length === 0) {
         games = await getRecentGames(username, 14);
@@ -79,31 +76,35 @@ export default function DashboardScreen() {
         return;
       }
 
-      setGenState('analyzing');
-      setGenProgress(`Analyzing ${Math.min(games.length, 10)} games…`);
-
-      // Yield again so the "Analyzing…" label renders before the sync scan
-      await new Promise(resolve => setTimeout(resolve, 50));
-
-      const puzzles = await generatePuzzles(games, username);
-
-      if (puzzles.length === 0) {
-        setGenState('idle');
-        Alert.alert('No Puzzles Found', 'No significant blunders found in your recent games. You\'re playing well!');
-        return;
-      }
-
-      // Reset previous puzzle progress when new puzzles are generated
-      await storage.setPuzzles(puzzles);
+      // Clear previous puzzles and navigate immediately
+      await storage.setPuzzles([]);
       await storage.setPuzzleProgress({});
       const now = Date.now();
       await storage.setLastGenerated(now);
       setLastGenerated(new Date(now));
-      setPuzzleCount(puzzles.length);
-      setGenState('done');
+      setPuzzleCount(0);
 
+      generationState.isGenerating = true;
+      setGenState('idle');
       router.push('/puzzles');
-    } catch (err) {
+
+      // Scan games in background; each puzzle saved as it's found
+      let count = 0;
+      await generatePuzzlesProgressive(games, username, async (puzzle) => {
+        const existing = await storage.getPuzzles();
+        await storage.setPuzzles([...existing, puzzle]);
+        count++;
+        setPuzzleCount(count);
+      });
+
+      generationState.isGenerating = false;
+      setPuzzleCount(count);
+
+      if (count === 0) {
+        Alert.alert('No Puzzles Found', 'No significant blunders found in your recent games. You\'re playing well!');
+      }
+    } catch {
+      generationState.isGenerating = false;
       setGenState('error');
       Alert.alert('Error', 'Something went wrong. Please try again.');
     }

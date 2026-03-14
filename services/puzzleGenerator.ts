@@ -192,6 +192,40 @@ export function extractPuzzleFromGame(
   }
 }
 
+/** Returns true if the given game was a loss for username. */
+export function isLoss(game: ChessComGame, username: string): boolean {
+  const lc = username.toLowerCase();
+  const isWhite = game.white.username.toLowerCase() === lc;
+  const result = isWhite ? game.white.result : game.black.result;
+  return ['checkmated', 'timeout', 'resigned', 'lose', 'abandoned'].includes(result);
+}
+
+/**
+ * Progressive async scanner: lost games first (falls back to all),
+ * yields the thread between each game so the UI stays responsive.
+ * Calls onPuzzleFound as each blunder is discovered.
+ */
+export async function generatePuzzlesProgressive(
+  games: ChessComGame[],
+  username: string,
+  onPuzzleFound: (puzzle: Puzzle) => Promise<void>,
+  maxPuzzles = 5,
+): Promise<void> {
+  const lostGames = games.filter((g) => isLoss(g, username));
+  const scanGames = (lostGames.length >= 2 ? lostGames : games).slice(0, 10);
+
+  let found = 0;
+  for (const game of scanGames) {
+    if (found >= maxPuzzles) break;
+    await new Promise(resolve => setTimeout(resolve, 0));
+    const puzzle = extractPuzzleFromGame(game, username);
+    if (puzzle) {
+      found++;
+      await onPuzzleFound(puzzle);
+    }
+  }
+}
+
 /**
  * Fast synchronous scan of up to 10 recent games.
  * Returns puzzles with depth-1 correctMove (placeholder until enriched).
