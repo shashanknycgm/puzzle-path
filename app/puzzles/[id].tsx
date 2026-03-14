@@ -6,15 +6,19 @@ import {
   StyleSheet,
   ScrollView,
   Animated,
-  Alert,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import Chessboard from 'react-native-chessboard';
-import { Chess } from 'chess.js';
+import type { Move } from 'chess.js';
 import { storage, type Puzzle } from '../../services/storage';
 import { uciToSan } from '../../services/puzzleGenerator';
 
 type Feedback = 'correct' | 'wrong' | null;
+
+type ChessMoveInfo = {
+  move: Move;
+  state: { in_promotion: boolean; [key: string]: any };
+};
 
 export default function PuzzleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -55,30 +59,10 @@ export default function PuzzleDetailScreen() {
     });
   };
 
-  const handleMove = async ({ state }: { state: { in_checkmate: boolean; in_draw: boolean; [key: string]: any } }) => {
+  const handleMove = async ({ move }: ChessMoveInfo) => {
     if (!puzzle || solved || revealed) return;
 
-    // Get last move from chess.js to compare against correct move
-    const chess = new Chess(puzzle.fen);
-    const history = chess.history({ verbose: true });
-
-    // The board state passed to onMove contains the current FEN
-    // We need to figure out what move was just played
-    // react-native-chessboard passes `state` which has the board state
-    // We compare by rebuilding the move from fen diff
-
-    // Actually, react-native-chessboard v0.1.x passes the move via `move` key
-    // Let's handle both patterns
-    const moveState = state as any;
-    const lastMoveFrom = moveState?.move?.from || moveState?.from;
-    const lastMoveTo = moveState?.move?.to || moveState?.to;
-
-    if (!lastMoveFrom || !lastMoveTo) {
-      // Can't determine move, skip validation
-      return;
-    }
-
-    const playedUci = `${lastMoveFrom}${lastMoveTo}`;
+    const playedUci = `${move.from}${move.to}`;
     const correctUci = puzzle.correctMove.slice(0, 4); // first 4 chars (ignore promotion for now)
 
     const isCorrect = playedUci === correctUci;
@@ -170,7 +154,6 @@ export default function PuzzleDetailScreen() {
         <Chessboard
           key={boardKey}
           fen={puzzle.fen}
-          boardOrientation={puzzle.color}
           onMove={handleMove}
           gestureEnabled={!solved && !revealed}
           colors={{
