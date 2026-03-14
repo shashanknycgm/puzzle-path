@@ -21,6 +21,7 @@ export default function DashboardScreen() {
   const [username, setUsername] = useState('');
   const [stats, setStats] = useState<GameStats | null>(null);
   const [loadingStats, setLoadingStats] = useState(true);
+  const [cachedGames, setCachedGames] = useState<any[]>([]);
   const [genState, setGenState] = useState<GenerationState>('idle');
   const [genProgress, setGenProgress] = useState('');
   const [lastGenerated, setLastGenerated] = useState<Date | null>(null);
@@ -35,6 +36,7 @@ export default function DashboardScreen() {
     try {
       const games = await getRecentGames(user, 14);
       setStats(computeStats(games, user));
+      setCachedGames(games); // reuse for Generate so we don't fetch twice
     } catch {
       setStats({ wins: 0, losses: 0, draws: 0, totalGames: 0 });
     } finally {
@@ -55,11 +57,15 @@ export default function DashboardScreen() {
   const handleGeneratePuzzles = async () => {
     if (genState === 'fetching' || genState === 'analyzing') return;
 
-    setGenState('fetching');
-    setGenProgress('Fetching your recent games…');
-
     try {
-      const games = await getRecentGames(username, 14);
+      // Reuse cached games if available, otherwise fetch
+      let games = cachedGames;
+      if (games.length === 0) {
+        setGenState('fetching');
+        setGenProgress('Fetching your recent games…');
+        games = await getRecentGames(username, 14);
+        setCachedGames(games);
+      }
 
       if (games.length === 0) {
         setGenState('idle');
@@ -100,6 +106,8 @@ export default function DashboardScreen() {
 
   const handleChangeUser = async () => {
     await storage.setUsername('');
+    await storage.setPuzzles([]);
+    await storage.setPuzzleProgress({});
     router.replace('/');
   };
 
