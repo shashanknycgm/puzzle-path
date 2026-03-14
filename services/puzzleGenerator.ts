@@ -235,9 +235,12 @@ export function generatePuzzlesSync(
   username: string,
   maxPuzzles = 5,
 ): Puzzle[] {
-  const puzzles: Puzzle[] = [];
+  // Prioritise lost games — blunders are far more common there
+  const lostGames = games.filter((g) => isLoss(g, username));
+  const scanGames = (lostGames.length >= 2 ? lostGames : games).slice(0, 10);
 
-  for (const game of games.slice(0, 10)) {
+  const puzzles: Puzzle[] = [];
+  for (const game of scanGames) {
     if (puzzles.length >= maxPuzzles) break;
     const puzzle = extractPuzzleFromGame(game, username);
     if (puzzle) puzzles.push(puzzle);

@@ -10,7 +10,6 @@ import {
 import { useRouter, useFocusEffect } from 'expo-router';
 import { storage, type Puzzle, type PuzzleProgress } from '../../services/storage';
 import { uciToSan } from '../../services/puzzleGenerator';
-import { generationState } from '../../services/generationState';
 
 type PuzzleStatus = 'unsolved' | 'solved' | 'failed' | 'skipped';
 
@@ -33,27 +32,16 @@ export default function PuzzleListScreen() {
   const [puzzles, setPuzzles] = useState<Puzzle[]>([]);
   const [progress, setProgress] = useState<PuzzleProgress>({});
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
 
   const loadData = useCallback(async () => {
     const [p, prog] = await Promise.all([storage.getPuzzles(), storage.getPuzzleProgress()]);
     setPuzzles(p);
     setProgress(prog);
     setLoading(false);
-    setGenerating(generationState.isGenerating);
   }, []);
 
   useFocusEffect(useCallback(() => {
     loadData();
-
-    if (!generationState.isGenerating) return;
-
-    const interval = setInterval(() => {
-      loadData();
-      if (!generationState.isGenerating) clearInterval(interval);
-    }, 600);
-
-    return () => clearInterval(interval);
   }, [loadData]));
 
   const solved = puzzles.filter((p) => progress[p.id] === 'solved').length;
@@ -69,30 +57,14 @@ export default function PuzzleListScreen() {
   if (puzzles.length === 0) {
     return (
       <View style={styles.center}>
-        {generating ? (
-          <>
-            <ActivityIndicator color="#1B7A3E" size="large" />
-            <Text style={[styles.emptyText, { marginTop: 16 }]}>Finding your blunders…</Text>
-            <Text style={styles.emptySubtext}>Analyzing your recent games</Text>
-          </>
-        ) : (
-          <>
-            <Text style={styles.emptyText}>No puzzles yet.</Text>
-            <Text style={styles.emptySubtext}>Go back and tap "Generate My Puzzles".</Text>
-          </>
-        )}
+        <Text style={styles.emptyText}>No puzzles yet.</Text>
+        <Text style={styles.emptySubtext}>Go back and tap "Generate My Puzzles".</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {generating && (
-        <View style={styles.generatingBanner}>
-          <ActivityIndicator color="#1B7A3E" size="small" style={{ marginRight: 8 }} />
-          <Text style={styles.generatingBannerText}>Finding more blunders…</Text>
-        </View>
-      )}
       <View style={styles.headerBar}>
         <Text style={styles.headerText}>
           {solved}/{puzzles.length} solved
@@ -159,16 +131,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#1B7A3E',
     borderRadius: 3,
   },
-  generatingBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#E8F5EE',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#c8e6d4',
-  },
-  generatingBannerText: { fontSize: 13, color: '#1B7A3E', fontWeight: '600' },
   list: { padding: 16 },
   puzzleCard: {
     backgroundColor: '#fff',

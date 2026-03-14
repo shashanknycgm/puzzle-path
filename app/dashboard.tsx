@@ -11,8 +11,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
-import { generatePuzzlesProgressive } from '../services/puzzleGenerator';
-import { generationState } from '../services/generationState';
+import { generatePuzzles } from '../services/puzzleGenerator';
 import { storage } from '../services/storage';
 
 type GenerationState = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
@@ -76,35 +75,28 @@ export default function DashboardScreen() {
         return;
       }
 
-      // Clear previous puzzles and navigate immediately
-      await storage.setPuzzles([]);
+      setGenState('analyzing');
+      setGenProgress('Analyzing your games…');
+      await new Promise(resolve => setTimeout(resolve, 50));
+
+      const puzzles = await generatePuzzles(games, username);
+
+      if (puzzles.length === 0) {
+        setGenState('idle');
+        Alert.alert('No Puzzles Found', "No significant blunders found in your recent games. You're playing well!");
+        return;
+      }
+
+      await storage.setPuzzles(puzzles);
       await storage.setPuzzleProgress({});
       const now = Date.now();
       await storage.setLastGenerated(now);
       setLastGenerated(new Date(now));
-      setPuzzleCount(0);
+      setPuzzleCount(puzzles.length);
+      setGenState('done');
 
-      generationState.isGenerating = true;
-      setGenState('idle');
       router.push('/puzzles');
-
-      // Scan games in background; each puzzle saved as it's found
-      let count = 0;
-      await generatePuzzlesProgressive(games, username, async (puzzle) => {
-        const existing = await storage.getPuzzles();
-        await storage.setPuzzles([...existing, puzzle]);
-        count++;
-        setPuzzleCount(count);
-      });
-
-      generationState.isGenerating = false;
-      setPuzzleCount(count);
-
-      if (count === 0) {
-        Alert.alert('No Puzzles Found', 'No significant blunders found in your recent games. You\'re playing well!');
-      }
     } catch {
-      generationState.isGenerating = false;
       setGenState('error');
       Alert.alert('Error', 'Something went wrong. Please try again.');
     }
