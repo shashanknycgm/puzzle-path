@@ -179,7 +179,7 @@ export default function PuzzleDetailScreen() {
       {/* Chessboard — always mounted so WebView doesn't re-initialize */}
       <View style={styles.boardWrapper}>
         <ChessBoard
-          key={`${boardKey}-${revealed ? 'r' : ''}-${solved ? 's' : ''}`}
+          key={boardKey}
           fen={puzzle.fen}
           onMove={handleMove}
           gestureEnabled={boardInteractive}

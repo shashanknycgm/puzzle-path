@@ -1,11 +1,9 @@
-import React from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { View, StyleSheet, Dimensions } from 'react-native';
 import WebView from 'react-native-webview';
 import { Chess } from 'chess.js';
 
 const BOARD_SIZE = Dimensions.get('window').width - 16;
-
-// Lichess cburnett piece set — same pieces shown on lichess.org
 const PIECE_BASE = 'https://lichess1.org/assets/piece/cburnett';
 
 export type MoveInfo = { from: string; to: string; promotion?: string };
@@ -18,12 +16,15 @@ interface Props {
   flipped?: boolean;
 }
 
+/**
+ * Build the initial HTML. gestureEnabled and highlightSquares are NOT baked in —
+ * they are updated after mount via injectJavaScript so the WebView never reloads
+ * when those props change.
+ */
 function buildHTML(
   fen: string,
-  gestureEnabled: boolean,
   legalMoves: { from: string; to: string }[],
-  hl?: { from: string; to: string },
-  flipped = false
+  flipped = false,
 ): string {
   return `<!DOCTYPE html>
 <html>
@@ -42,18 +43,16 @@ html,body{width:100%;height:100%;overflow:hidden;}
 <body>
 <div id="b"></div>
 <script>
-// F/R are the canonical board-array axes (never change)
 const F='abcdefgh'.split('');
-const R='87654321'.split(''); // R[0]='8' → board[0] = rank 8
+const R='87654321'.split('');
 const BASE=${JSON.stringify(PIECE_BASE)};
 const fen=${JSON.stringify(fen)};
-const ge=${gestureEnabled};
+let ge=true;
 const lm=${JSON.stringify(legalMoves)};
-const hl=${JSON.stringify(hl ?? null)};
+let hl=null;
 const flipped=${flipped};
 const turn=fen.split(' ')[1]||'w';
 
-// Display order depends on orientation
 const dRanks=flipped?['1','2','3','4','5','6','7','8']:['8','7','6','5','4','3','2','1'];
 const dFiles=flipped?['h','g','f','e','d','c','b','a']:['a','b','c','d','e','f','g','h'];
 
@@ -83,7 +82,6 @@ function render(){
   dRanks.forEach((rank)=>{
     dFiles.forEach((file)=>{
       const sq=file+rank;
-      // Use canonical indices for board lookup and square-color math
       const fi=F.indexOf(file);
       const ri=R.indexOf(rank);
       const light=(fi+ri)%2===0;
@@ -151,8 +149,16 @@ render();
 </html>`;
 }
 
-export default function ChessBoard({ fen, onMove, gestureEnabled = true, highlightSquares, flipped = false }: Props) {
-  const legalMoves = React.useMemo(() => {
+export default function ChessBoard({
+  fen,
+  onMove,
+  gestureEnabled = true,
+  highlightSquares,
+  flipped = false,
+}: Props) {
+  const webviewRef = useRef<WebView>(null);
+
+  const legalMoves = useMemo(() => {
     try {
       const chess = new Chess(fen);
       return chess.moves({ verbose: true }).map((m: any) => ({ from: m.from, to: m.to }));
@@ -161,11 +167,25 @@ export default function ChessBoard({ fen, onMove, gestureEnabled = true, highlig
     }
   }, [fen]);
 
-  const html = buildHTML(fen, gestureEnabled, legalMoves, highlightSquares, flipped);
+  // Build HTML once per fen/flipped change. gestureEnabled and highlightSquares
+  // are intentionally excluded — they're updated via injection below.
+  const html = useMemo(() => buildHTML(fen, legalMoves, flipped), [fen, legalMoves, flipped]);
+
+  // Push gestureEnabled changes into the live WebView without reloading
+  useEffect(() => {
+    webviewRef.current?.injectJavaScript(`ge=${gestureEnabled};true;`);
+  }, [gestureEnabled]);
+
+  // Push highlight changes into the live WebView without reloading
+  useEffect(() => {
+    const hlJson = highlightSquares ? JSON.stringify(highlightSquares) : 'null';
+    webviewRef.current?.injectJavaScript(`hl=${hlJson};render();true;`);
+  }, [highlightSquares]);
 
   return (
     <View style={styles.container}>
       <WebView
+        ref={webviewRef}
         source={{ html }}
         style={styles.webview}
         scrollEnabled={false}
