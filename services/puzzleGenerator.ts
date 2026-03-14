@@ -261,20 +261,26 @@ export async function generatePuzzlesProgressive(
   games: ChessComGame[],
   username: string,
   onPuzzleFound: (puzzle: Puzzle) => Promise<void>,
+  onProgress?: (scanned: number, total: number) => void,
   maxPuzzles = 5,
 ): Promise<void> {
   const lostGames = games.filter((g) => isLoss(g, username));
   const scanGames = (lostGames.length >= 2 ? lostGames : games).slice(0, 10);
+  const total = scanGames.length;
 
   let found = 0;
-  for (const game of scanGames) {
-    if (found >= maxPuzzles) break;
+  for (let i = 0; i < total; i++) {
+    if (found >= maxPuzzles) {
+      onProgress?.(total, total); // fill bar to 100% when we have enough
+      break;
+    }
     await new Promise(resolve => setTimeout(resolve, 0));
-    const puzzle = extractPuzzleFromGame(game, username);
+    const puzzle = extractPuzzleFromGame(scanGames[i], username);
     if (puzzle) {
       found++;
       await onPuzzleFound(puzzle);
     }
+    onProgress?.(i + 1, total);
   }
 }
 

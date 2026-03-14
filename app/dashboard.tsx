@@ -7,11 +7,12 @@ import {
   StyleSheet,
   ScrollView,
   Alert,
+  Animated,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
-import { generatePuzzles } from '../services/puzzleGenerator';
+import { generatePuzzlesProgressive } from '../services/puzzleGenerator';
 import { storage } from '../services/storage';
 
 type GenerationState = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
@@ -27,6 +28,9 @@ export default function DashboardScreen() {
   const [genProgress, setGenProgress] = useState('');
   const [lastGenerated, setLastGenerated] = useState<Date | null>(null);
   const [puzzleCount, setPuzzleCount] = useState(0);
+  const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 1 });
+  const [blundersFound, setBlundersFound] = useState(0);
+  const progressAnim = useRef(new Animated.Value(0)).current;
 
   const load = useCallback(async () => {
     const user = await storage.getUsername();
@@ -75,24 +79,42 @@ export default function DashboardScreen() {
         return;
       }
 
+      setScanProgress({ scanned: 0, total: 1 });
+      setBlundersFound(0);
+      progressAnim.setValue(0);
       setGenState('analyzing');
-      setGenProgress('Analyzing your games…');
       await new Promise(resolve => setTimeout(resolve, 50));
 
-      const puzzles = await generatePuzzles(games, username);
+      const collected: any[] = [];
+      await generatePuzzlesProgressive(
+        games,
+        username,
+        async (puzzle) => {
+          collected.push(puzzle);
+          setBlundersFound(collected.length);
+        },
+        (scanned, total) => {
+          setScanProgress({ scanned, total });
+          Animated.timing(progressAnim, {
+            toValue: scanned / total,
+            duration: 200,
+            useNativeDriver: false,
+          }).start();
+        },
+      );
 
-      if (puzzles.length === 0) {
+      if (collected.length === 0) {
         setGenState('idle');
         Alert.alert('No Puzzles Found', "No significant blunders found in your recent games. You're playing well!");
         return;
       }
 
-      await storage.setPuzzles(puzzles);
+      await storage.setPuzzles(collected);
       await storage.setPuzzleProgress({});
       const now = Date.now();
       await storage.setLastGenerated(now);
       setLastGenerated(new Date(now));
-      setPuzzleCount(puzzles.length);
+      setPuzzleCount(collected.length);
       setGenState('done');
 
       router.push('/puzzles');
@@ -156,9 +178,33 @@ export default function DashboardScreen() {
 
           {isGenerating ? (
             <View style={styles.generatingContainer}>
-              <ActivityIndicator color="#1B7A3E" size="large" />
-              <Text style={styles.generatingText}>{genProgress}</Text>
-              <Text style={styles.generatingSubtext}>Usually takes just a few seconds…</Text>
+              {genState === 'fetching' ? (
+                <>
+                  <ActivityIndicator color="#1B7A3E" size="large" />
+                  <Text style={styles.generatingText}>Fetching your recent games…</Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.generatingText}>
+                    Analyzing game {scanProgress.scanned} of {scanProgress.total}
+                    {blundersFound > 0 ? `  ·  ${blundersFound} blunder${blundersFound !== 1 ? 's' : ''} found` : ''}
+                  </Text>
+                  <View style={styles.progressTrack}>
+                    <Animated.View
+                      style={[
+                        styles.progressFill,
+                        {
+                          width: progressAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: ['0%', '100%'],
+                          }),
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.generatingSubtext}>Looking for your biggest blunders…</Text>
+                </>
+              )}
             </View>
           ) : (
             <>
@@ -244,8 +290,21 @@ const styles = StyleSheet.create({
   totalGames: { textAlign: 'center', color: '#999', fontSize: 13, marginTop: 10 },
   lastGen: { color: '#999', fontSize: 13, marginBottom: 14 },
   generatingContainer: { alignItems: 'center', paddingVertical: 20 },
-  generatingText: { marginTop: 14, fontSize: 15, fontWeight: '600', color: '#333', textAlign: 'center' },
-  generatingSubtext: { marginTop: 6, fontSize: 13, color: '#999' },
+  generatingText: { marginTop: 4, fontSize: 15, fontWeight: '600', color: '#333', textAlign: 'center' },
+  generatingSubtext: { marginTop: 8, fontSize: 13, color: '#999' },
+  progressTrack: {
+    width: '100%',
+    height: 8,
+    backgroundColor: '#E8F5EE',
+    borderRadius: 4,
+    overflow: 'hidden',
+    marginTop: 14,
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#1B7A3E',
+    borderRadius: 4,
+  },
   generateButton: {
     backgroundColor: '#1B7A3E',
     borderRadius: 12,
