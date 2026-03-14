@@ -31,8 +31,55 @@ function materialScore(chess: Chess): number {
 }
 
 /**
+ * Quiescence search: extend the search with captures until the position is
+ * "quiet" (no captures available). Eliminates the horizon effect where the
+ * engine thinks a capture is great without seeing the recapture.
+ */
+function quiesce(
+  chess: Chess,
+  alpha: number,
+  beta: number,
+  maximizing: boolean,
+): number {
+  const standPat = materialScore(chess);
+
+  if (maximizing) {
+    if (standPat >= beta) return standPat;
+    alpha = Math.max(alpha, standPat);
+  } else {
+    if (standPat <= alpha) return standPat;
+    beta = Math.min(beta, standPat);
+  }
+
+  const captures = chess.moves({ verbose: true }).filter(m => m.captured);
+  captures.sort((a, b) => {
+    const aVal = (PIECE_VALUES[a.captured!] ?? 0) - (PIECE_VALUES[a.piece] ?? 0) / 10;
+    const bVal = (PIECE_VALUES[b.captured!] ?? 0) - (PIECE_VALUES[b.piece] ?? 0) / 10;
+    return bVal - aVal;
+  });
+
+  let best = standPat;
+  for (const move of captures) {
+    chess.move(move);
+    const score = quiesce(chess, alpha, beta, !maximizing);
+    chess.undo();
+    if (maximizing) {
+      best = Math.max(best, score);
+      alpha = Math.max(alpha, best);
+    } else {
+      best = Math.min(best, score);
+      beta = Math.min(beta, best);
+    }
+    if (beta <= alpha) break;
+  }
+  return best;
+}
+
+/**
  * Alpha-beta minimax.
  * Returns score from white's perspective.
+ * useQuiescence=true: resolves capture sequences at leaf nodes (better quality,
+ * ~2-5x more nodes — use for enrichment only, not the fast blunder scan).
  */
 function alphaBeta(
   chess: Chess,
@@ -40,8 +87,11 @@ function alphaBeta(
   alpha: number,
   beta: number,
   maximizing: boolean,
+  useQuiescence = false,
 ): number {
-  if (depth === 0) return materialScore(chess);
+  if (depth === 0) {
+    return useQuiescence ? quiesce(chess, alpha, beta, maximizing) : materialScore(chess);
+  }
 
   const moves = chess.moves({ verbose: true });
 
@@ -61,7 +111,7 @@ function alphaBeta(
     let best = -Infinity;
     for (const move of moves) {
       chess.move(move);
-      best = Math.max(best, alphaBeta(chess, depth - 1, alpha, beta, false));
+      best = Math.max(best, alphaBeta(chess, depth - 1, alpha, beta, false, useQuiescence));
       chess.undo();
       alpha = Math.max(alpha, best);
       if (beta <= alpha) break;
@@ -71,7 +121,7 @@ function alphaBeta(
     let best = Infinity;
     for (const move of moves) {
       chess.move(move);
-      best = Math.min(best, alphaBeta(chess, depth - 1, alpha, beta, true));
+      best = Math.min(best, alphaBeta(chess, depth - 1, alpha, beta, true, useQuiescence));
       chess.undo();
       beta = Math.min(beta, best);
       if (beta <= alpha) break;
@@ -84,7 +134,7 @@ function alphaBeta(
  * Find the best move from a position using alpha-beta minimax.
  * depth=1: fast scan (1-ply). depth=3: tactical quality.
  */
-export function localEvaluate(fen: string, depth = 3): PositionEval {
+export function localEvaluate(fen: string, depth = 3, useQuiescence = false): PositionEval {
   const chess = new Chess(fen);
   const moves = chess.moves({ verbose: true });
 
@@ -106,7 +156,7 @@ export function localEvaluate(fen: string, depth = 3): PositionEval {
 
   for (const move of moves) {
     chess.move(move);
-    const raw = alphaBeta(chess, depth - 1, -Infinity, Infinity, !isWhiteTurn);
+    const raw = alphaBeta(chess, depth - 1, -Infinity, Infinity, !isWhiteTurn, useQuiescence);
     chess.undo();
     const playerScore = isWhiteTurn ? raw : -raw;
     if (playerScore > bestScore) {
@@ -126,7 +176,9 @@ export function localEvaluate(fen: string, depth = 3): PositionEval {
  */
 export async function enrichPuzzle(puzzle: Puzzle): Promise<Puzzle> {
   await new Promise(resolve => setTimeout(resolve, 0));
-  const best = localEvaluate(puzzle.fen, 2);
+  // depth-3 + quiescence: resolves capture sequences so the engine doesn't
+  // misjudge hanging pieces or mid-sequence captures (horizon effect fix)
+  const best = localEvaluate(puzzle.fen, 3, true);
   return { ...puzzle, correctMove: best.bestMove || puzzle.correctMove, enriched: true };
 }
 
