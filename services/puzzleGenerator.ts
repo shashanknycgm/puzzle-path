@@ -17,12 +17,75 @@ export interface PositionEval {
   score: number;    // centipawns from white's perspective
 }
 
+/** Material sum from white's perspective */
+function materialScore(chess: Chess): number {
+  let score = 0;
+  for (const row of chess.board()) {
+    for (const sq of row) {
+      if (!sq) continue;
+      const val = PIECE_VALUES[sq.type] ?? 0;
+      score += sq.color === 'w' ? val : -val;
+    }
+  }
+  return score;
+}
+
 /**
- * Fast local evaluation using 1-ply material search.
- * Finds the move that maximizes material gain (captures + positional hints).
+ * Alpha-beta minimax.
+ * Returns score from white's perspective.
+ */
+function alphaBeta(
+  chess: Chess,
+  depth: number,
+  alpha: number,
+  beta: number,
+  maximizing: boolean,
+): number {
+  if (depth === 0) return materialScore(chess);
+
+  const moves = chess.moves({ verbose: true });
+
+  if (moves.length === 0) {
+    if (chess.isCheckmate()) return maximizing ? -30000 : 30000;
+    return 0; // stalemate
+  }
+
+  // Move ordering: captures first (MVV-LVA improves pruning depth)
+  moves.sort((a, b) => {
+    const aVal = a.captured ? (PIECE_VALUES[a.captured] ?? 0) - (PIECE_VALUES[a.piece] ?? 0) / 10 : -1000;
+    const bVal = b.captured ? (PIECE_VALUES[b.captured] ?? 0) - (PIECE_VALUES[b.piece] ?? 0) / 10 : -1000;
+    return bVal - aVal;
+  });
+
+  if (maximizing) {
+    let best = -Infinity;
+    for (const move of moves) {
+      chess.move(move);
+      best = Math.max(best, alphaBeta(chess, depth - 1, alpha, beta, false));
+      chess.undo();
+      alpha = Math.max(alpha, best);
+      if (beta <= alpha) break;
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for (const move of moves) {
+      chess.move(move);
+      best = Math.min(best, alphaBeta(chess, depth - 1, alpha, beta, true));
+      chess.undo();
+      beta = Math.min(beta, best);
+      if (beta <= alpha) break;
+    }
+    return best;
+  }
+}
+
+/**
+ * Find the best move from a position using alpha-beta minimax (depth 3).
+ * Finds forks, pins, and basic combinations — far stronger than 1-ply.
  * Runs synchronously in JS — no network or WASM needed.
  */
-export function localEvaluate(fen: string): PositionEval {
+export function localEvaluate(fen: string, depth = 3): PositionEval {
   const chess = new Chess(fen);
   const moves = chess.moves({ verbose: true });
 
@@ -35,41 +98,32 @@ export function localEvaluate(fen: string): PositionEval {
   let bestMove = moves[0];
   let bestScore = -Infinity;
 
+  // Captures first at root for better pruning
+  moves.sort((a, b) => {
+    const aVal = a.captured ? (PIECE_VALUES[a.captured] ?? 0) : -1000;
+    const bVal = b.captured ? (PIECE_VALUES[b.captured] ?? 0) : -1000;
+    return bVal - aVal;
+  });
+
   for (const move of moves) {
     chess.move(move);
-
-    // 1-ply: score = our material - their material after this move
-    let score = 0;
-    const board = chess.board();
-    for (const row of board) {
-      for (const sq of row) {
-        if (!sq) continue;
-        const val = PIECE_VALUES[sq.type] ?? 0;
-        score += sq.color === 'w' ? val : -val;
-      }
-    }
-
-    // Flip sign if we're evaluating for black (we want best for current player)
-    const playerScore = isWhiteTurn ? score : -score;
-
+    const raw = alphaBeta(chess, depth - 1, -Infinity, Infinity, !isWhiteTurn);
+    chess.undo();
+    const playerScore = isWhiteTurn ? raw : -raw;
     if (playerScore > bestScore) {
       bestScore = playerScore;
       bestMove = move;
     }
-
-    chess.undo();
   }
 
-  // Final score from white's perspective
   const finalScore = isWhiteTurn ? bestScore : -bestScore;
   const uciMove = `${bestMove.from}${bestMove.to}${bestMove.promotion ?? ''}`;
-
   return { fen, bestMove: uciMove, score: finalScore };
 }
 
 /**
  * Given a game, find the worst blunder made by `username`.
- * Uses localEvaluate — runs entirely in JS, no engine needed.
+ * Uses localEvaluate (depth 1 for speed during scan, depth 3 for correctMove).
  */
 export function extractPuzzleFromGame(
   game: ChessComGame,
@@ -97,12 +151,13 @@ export function extractPuzzleFromGame(
       }
 
       const fenBefore = replayChess.fen();
-      const evalBefore = localEvaluate(fenBefore);
+      // Use depth 1 for the blunder scan (fast — runs for every move in every game)
+      const evalBefore = localEvaluate(fenBefore, 1);
 
       replayChess.move(move);
 
       const fenAfter = replayChess.fen();
-      const evalAfter = localEvaluate(fenAfter);
+      const evalAfter = localEvaluate(fenAfter, 1);
 
       // Eval drop from the player's perspective
       const scoreBefore = isWhite ? evalBefore.score : -evalBefore.score;
@@ -115,7 +170,7 @@ export function extractPuzzleFromGame(
         worstBlunder = {
           id: `${game.url}-move${i}`,
           fen: fenBefore,
-          correctMove: evalBefore.bestMove,
+          correctMove: evalBefore.bestMove, // placeholder; enriched below
           opponentUsername: opponent,
           moveNumber: Math.floor(i / 2) + 1,
           color: isWhite ? 'white' : 'black',
@@ -168,8 +223,9 @@ async function lichessCloudEval(fen: string): Promise<string | null> {
 }
 
 /**
- * Generate up to maxPuzzles, using Lichess cloud eval to get real best moves.
- * Falls back to local 1-ply evaluator if the API is unavailable.
+ * Generate up to maxPuzzles, enriching correctMove with:
+ *   1. Lichess cloud eval (real Stockfish, depth ~22) if the position is cached
+ *   2. Local alpha-beta depth-3 otherwise
  */
 export async function generatePuzzles(
   games: ChessComGame[],
@@ -179,12 +235,19 @@ export async function generatePuzzles(
 ): Promise<Puzzle[]> {
   const puzzles = generatePuzzlesSync(games, username, maxPuzzles);
 
-  // Enrich each puzzle's correctMove with real Stockfish analysis
+  // Enrich each puzzle's correctMove with the best available analysis
   await Promise.all(
     puzzles.map(async (puzzle) => {
+      // Try Lichess cloud eval first (free, depth ~22, but only cached positions)
       const lichessMove = await lichessCloudEval(puzzle.fen);
       if (lichessMove) {
         puzzle.correctMove = lichessMove;
+      } else {
+        // Fall back to local alpha-beta depth-3 (finds tactics, no network needed)
+        const local = localEvaluate(puzzle.fen, 3);
+        if (local.bestMove) {
+          puzzle.correctMove = local.bestMove;
+        }
       }
     })
   );
