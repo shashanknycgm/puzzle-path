@@ -150,14 +150,46 @@ export function generatePuzzlesSync(
   return puzzles.sort((a, b) => b.evalDrop - a.evalDrop).slice(0, maxPuzzles);
 }
 
-// Keep async version for backward compat
+/**
+ * Fetch the best move for a position from Lichess cloud eval (real Stockfish, depth ~22).
+ * Returns UCI string e.g. "e2e4", or null if unavailable.
+ */
+async function lichessCloudEval(fen: string): Promise<string | null> {
+  try {
+    const url = `https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=1`;
+    const res = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const firstMove: string | undefined = data?.pvs?.[0]?.moves?.split(' ')?.[0];
+    return firstMove ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Generate up to maxPuzzles, using Lichess cloud eval to get real best moves.
+ * Falls back to local 1-ply evaluator if the API is unavailable.
+ */
 export async function generatePuzzles(
   games: ChessComGame[],
   username: string,
   _evaluatePosition?: (fen: string) => Promise<PositionEval>,
   maxPuzzles = 5
 ): Promise<Puzzle[]> {
-  return generatePuzzlesSync(games, username, maxPuzzles);
+  const puzzles = generatePuzzlesSync(games, username, maxPuzzles);
+
+  // Enrich each puzzle's correctMove with real Stockfish analysis
+  await Promise.all(
+    puzzles.map(async (puzzle) => {
+      const lichessMove = await lichessCloudEval(puzzle.fen);
+      if (lichessMove) {
+        puzzle.correctMove = lichessMove;
+      }
+    })
+  );
+
+  return puzzles;
 }
 
 /**
