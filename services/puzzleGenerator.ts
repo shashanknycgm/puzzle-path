@@ -176,9 +176,7 @@ export function localEvaluate(fen: string, depth = 3, useQuiescence = false): Po
  */
 export async function enrichPuzzle(puzzle: Puzzle): Promise<Puzzle> {
   await new Promise(resolve => setTimeout(resolve, 0));
-  // depth-3 + quiescence: resolves capture sequences so the engine doesn't
-  // misjudge hanging pieces or mid-sequence captures (horizon effect fix)
-  const best = localEvaluate(puzzle.fen, 3, true);
+  const best = localEvaluate(puzzle.fen, 2);
   return { ...puzzle, correctMove: best.bestMove || puzzle.correctMove, enriched: true };
 }
 

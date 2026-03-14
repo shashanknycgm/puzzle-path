@@ -12,7 +12,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import ChessBoard, { type MoveInfo } from '../../components/ChessBoard';
 import { storage, type Puzzle } from '../../services/storage';
 import { uciToSan, enrichPuzzle } from '../../services/puzzleGenerator';
-import { getCoachAnalysis } from '../../services/aiCoach';
 
 type Feedback = 'correct' | 'wrong' | null;
 
@@ -28,8 +27,6 @@ export default function PuzzleDetailScreen() {
   const [solved, setSolved] = useState(false);
   const [boardKey, setBoardKey] = useState(0);
   const [correctSan, setCorrectSan] = useState('');
-  const [coachText, setCoachText] = useState<string | null>(null);
-  const [coachLoading, setCoachLoading] = useState(false);
 
   const feedbackAnim = useRef(new Animated.Value(0)).current;
 
@@ -59,23 +56,6 @@ export default function PuzzleDetailScreen() {
     loadAndEnrich();
   }, [id]);
 
-  const triggerCoach = async (p: Puzzle, didSolve: boolean, san: string) => {
-    setCoachLoading(true);
-    try {
-      const text = await getCoachAnalysis({
-        fen: p.fen,
-        correctMoveSan: san,
-        solved: didSolve,
-        evalDrop: p.evalDrop,
-      });
-      setCoachText(text);
-    } catch {
-      setCoachText('Coach is unavailable right now. Check your API key in .env.');
-    } finally {
-      setCoachLoading(false);
-    }
-  };
-
   const flashFeedback = (type: Feedback) => {
     setFeedback(type);
     feedbackAnim.setValue(1);
@@ -99,7 +79,6 @@ export default function PuzzleDetailScreen() {
       flashFeedback('correct');
       setSolved(true);
       await storage.updatePuzzleResult(puzzle.id, 'solved');
-      triggerCoach(puzzle, true, correctSan);
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
@@ -108,7 +87,6 @@ export default function PuzzleDetailScreen() {
       if (newAttempts >= 3) {
         setRevealed(true);
         await storage.updatePuzzleResult(puzzle.id, 'failed');
-        triggerCoach(puzzle, false, correctSan);
       } else {
         setTimeout(() => {
           setBoardKey((k) => k + 1);
@@ -126,10 +104,7 @@ export default function PuzzleDetailScreen() {
 
   const handleReveal = () => {
     setRevealed(true);
-    if (puzzle) {
-      storage.updatePuzzleResult(puzzle.id, 'failed');
-      triggerCoach(puzzle, false, correctSan);
-    }
+    if (puzzle) storage.updatePuzzleResult(puzzle.id, 'failed');
   };
 
   if (!puzzle) {
@@ -230,24 +205,6 @@ export default function PuzzleDetailScreen() {
         </View>
       )}
 
-      {/* AI Coach card — shown after solve or reveal */}
-      {(solved || revealed) && (
-        <View style={styles.coachCard}>
-          <View style={styles.coachHeader}>
-            <Text style={styles.coachIcon}>♟</Text>
-            <Text style={styles.coachTitle}>Coach Analysis</Text>
-          </View>
-          {coachLoading ? (
-            <View style={styles.coachLoading}>
-              <ActivityIndicator color="#1B7A3E" size="small" />
-              <Text style={styles.coachLoadingText}>Analyzing position…</Text>
-            </View>
-          ) : (
-            <Text style={styles.coachText}>{coachText ?? ''}</Text>
-          )}
-        </View>
-      )}
-
       {/* Actions */}
       {!solved && !revealed && (
         <View style={styles.actions}>
@@ -326,31 +283,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 28,
   },
   nextButtonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-
-  coachCard: {
-    marginHorizontal: 16,
-    marginBottom: 16,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 18,
-    borderLeftWidth: 4,
-    borderLeftColor: '#1B7A3E',
-    shadowColor: '#000',
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 2 },
-    elevation: 1,
-  },
-  coachHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 10,
-  },
-  coachIcon: { fontSize: 18, marginRight: 6 },
-  coachTitle: { fontSize: 13, fontWeight: '700', color: '#1B7A3E', textTransform: 'uppercase', letterSpacing: 0.6 },
-  coachLoading: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 4 },
-  coachLoadingText: { fontSize: 14, color: '#888', fontStyle: 'italic' },
-  coachText: { fontSize: 15, color: '#333', lineHeight: 22 },
 
   actions: {
     flexDirection: 'row',
