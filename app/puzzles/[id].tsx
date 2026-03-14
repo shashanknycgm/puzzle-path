@@ -42,7 +42,6 @@ export default function PuzzleDetailScreen() {
       if (found.enriched) {
         setCorrectSan(uciToSan(found.fen, found.correctMove) || found.correctMove);
         setEnriching(false);
-        backgroundEnrichRest(puzzles, found.id);
         return;
       }
 
@@ -52,20 +51,10 @@ export default function PuzzleDetailScreen() {
       setPuzzle(enriched);
       setCorrectSan(uciToSan(enriched.fen, enriched.correctMove) || enriched.correctMove);
       setEnriching(false);
-
-      backgroundEnrichRest(puzzles, enriched.id);
     };
 
     loadAndEnrich();
   }, [id]);
-
-  const backgroundEnrichRest = async (puzzles: Puzzle[], currentId: string) => {
-    for (const p of puzzles) {
-      if (p.id === currentId || p.enriched) continue;
-      const enriched = await enrichPuzzle(p);
-      await storage.updatePuzzle(enriched.id, { correctMove: enriched.correctMove, enriched: true });
-    }
-  };
 
   const flashFeedback = (type: Feedback) => {
     setFeedback(type);
