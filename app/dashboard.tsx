@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
+import { useFocusEffect } from 'expo-router';
 import {
   View,
   Text,
@@ -50,9 +51,9 @@ export default function DashboardScreen() {
     setPuzzleCount(puzzles.length);
   }, []);
 
-  useEffect(() => {
+  useFocusEffect(useCallback(() => {
     load();
-  }, [load]);
+  }, [load]));
 
   const handleGeneratePuzzles = async () => {
     if (isGenerating) return;
