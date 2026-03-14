@@ -61,6 +61,9 @@ export default function DashboardScreen() {
     setGenState('fetching');
     setGenProgress('Fetching your recent games…');
 
+    // Yield so React can render the spinner before any blocking work
+    await new Promise(resolve => setTimeout(resolve, 50));
+
     try {
       // Reuse cached games if available, otherwise fetch
       let games = cachedGames;
@@ -77,6 +80,9 @@ export default function DashboardScreen() {
 
       setGenState('analyzing');
       setGenProgress(`Analyzing ${Math.min(games.length, 10)} games…`);
+
+      // Yield again so the "Analyzing…" label renders before the sync scan
+      await new Promise(resolve => setTimeout(resolve, 50));
 
       const puzzles = await generatePuzzles(games, username);
 
