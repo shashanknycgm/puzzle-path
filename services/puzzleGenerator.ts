@@ -50,7 +50,7 @@ function alphaBeta(
     return 0; // stalemate
   }
 
-  // Move ordering: captures first (MVV-LVA improves pruning depth)
+  // Move ordering: captures first (MVV-LVA improves pruning)
   moves.sort((a, b) => {
     const aVal = a.captured ? (PIECE_VALUES[a.captured] ?? 0) - (PIECE_VALUES[a.piece] ?? 0) / 10 : -1000;
     const bVal = b.captured ? (PIECE_VALUES[b.captured] ?? 0) - (PIECE_VALUES[b.piece] ?? 0) / 10 : -1000;
@@ -81,9 +81,8 @@ function alphaBeta(
 }
 
 /**
- * Find the best move from a position using alpha-beta minimax (depth 3).
- * Finds forks, pins, and basic combinations — far stronger than 1-ply.
- * Runs synchronously in JS — no network or WASM needed.
+ * Find the best move from a position using alpha-beta minimax.
+ * depth=1: fast scan (1-ply). depth=3: tactical quality.
  */
 export function localEvaluate(fen: string, depth = 3): PositionEval {
   const chess = new Chess(fen);
@@ -122,8 +121,18 @@ export function localEvaluate(fen: string, depth = 3): PositionEval {
 }
 
 /**
+ * Enrich a single puzzle's correctMove with depth-3 alpha-beta.
+ * Yields the thread first so the caller can show a loading state.
+ */
+export async function enrichPuzzle(puzzle: Puzzle): Promise<Puzzle> {
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const best = localEvaluate(puzzle.fen, 3);
+  return { ...puzzle, correctMove: best.bestMove || puzzle.correctMove, enriched: true };
+}
+
+/**
  * Given a game, find the worst blunder made by `username`.
- * Uses localEvaluate (depth 1 for speed during scan, depth 3 for correctMove).
+ * Uses depth-1 for speed (runs for every move in every game).
  */
 export function extractPuzzleFromGame(
   game: ChessComGame,
@@ -143,7 +152,6 @@ export function extractPuzzleFromGame(
     for (let i = 0; i < history.length - 1; i++) {
       const move = history[i];
 
-      // Only check the player's moves; skip first 5 moves (opening)
       const isMyMove = isWhite ? i % 2 === 0 : i % 2 === 1;
       if (!isMyMove || i < 10) {
         replayChess.move(move);
@@ -151,7 +159,6 @@ export function extractPuzzleFromGame(
       }
 
       const fenBefore = replayChess.fen();
-      // Use depth 1 for the blunder scan (fast — runs for every move in every game)
       const evalBefore = localEvaluate(fenBefore, 1);
 
       replayChess.move(move);
@@ -159,7 +166,6 @@ export function extractPuzzleFromGame(
       const fenAfter = replayChess.fen();
       const evalAfter = localEvaluate(fenAfter, 1);
 
-      // Eval drop from the player's perspective
       const scoreBefore = isWhite ? evalBefore.score : -evalBefore.score;
       const scoreAfter = isWhite ? evalAfter.score : -evalAfter.score;
       const drop = scoreBefore - scoreAfter;
@@ -170,11 +176,12 @@ export function extractPuzzleFromGame(
         worstBlunder = {
           id: `${game.url}-move${i}`,
           fen: fenBefore,
-          correctMove: evalBefore.bestMove, // placeholder; enriched below
+          correctMove: evalBefore.bestMove,
           opponentUsername: opponent,
           moveNumber: Math.floor(i / 2) + 1,
           color: isWhite ? 'white' : 'black',
           evalDrop: Math.round(drop),
+          enriched: false,
         };
       }
     }
@@ -186,17 +193,17 @@ export function extractPuzzleFromGame(
 }
 
 /**
- * Generate up to maxPuzzles from recent games.
- * Runs synchronously — no await needed.
+ * Fast synchronous scan of up to 10 recent games.
+ * Returns puzzles with depth-1 correctMove (placeholder until enriched).
  */
 export function generatePuzzlesSync(
   games: ChessComGame[],
   username: string,
-  maxPuzzles = 5
+  maxPuzzles = 5,
 ): Puzzle[] {
   const puzzles: Puzzle[] = [];
 
-  for (const game of games.slice(0, 15)) {
+  for (const game of games.slice(0, 10)) {
     if (puzzles.length >= maxPuzzles) break;
     const puzzle = extractPuzzleFromGame(game, username);
     if (puzzle) puzzles.push(puzzle);
@@ -205,30 +212,17 @@ export function generatePuzzlesSync(
   return puzzles.sort((a, b) => b.evalDrop - a.evalDrop).slice(0, maxPuzzles);
 }
 
-/** Yield the JS thread so the UI can update between heavy computations. */
-function yieldThread(): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, 0));
-}
-
 /**
- * Generate up to maxPuzzles, enriching correctMove with local alpha-beta depth-3.
- * Yields between each puzzle to keep the UI responsive.
+ * Kept for backward compatibility. Equivalent to generatePuzzlesSync.
+ * Enrichment now happens lazily in the puzzle screen.
  */
 export async function generatePuzzles(
   games: ChessComGame[],
   username: string,
   _evaluatePosition?: (fen: string) => Promise<PositionEval>,
-  maxPuzzles = 5
+  maxPuzzles = 5,
 ): Promise<Puzzle[]> {
-  const puzzles = generatePuzzlesSync(games, username, maxPuzzles);
-
-  for (const puzzle of puzzles) {
-    await yieldThread(); // let spinner animate between each puzzle analysis
-    const best = localEvaluate(puzzle.fen, 3);
-    if (best.bestMove) puzzle.correctMove = best.bestMove;
-  }
-
-  return puzzles;
+  return generatePuzzlesSync(games, username, maxPuzzles);
 }
 
 /**

@@ -15,6 +15,7 @@ export interface Puzzle {
   moveNumber: number;
   color: 'white' | 'black'; // which color was playing
   evalDrop: number;      // centipawns lost
+  enriched?: boolean;    // true once depth-3 correctMove has been computed
 }
 
 export interface PuzzleProgress {
@@ -52,6 +53,15 @@ export const storage = {
     const progress = await storage.getPuzzleProgress();
     progress[puzzleId] = result;
     await storage.setPuzzleProgress(progress);
+  },
+
+  async updatePuzzle(puzzleId: string, updates: Partial<Puzzle>): Promise<void> {
+    const puzzles = await storage.getPuzzles();
+    const idx = puzzles.findIndex((p) => p.id === puzzleId);
+    if (idx >= 0) {
+      puzzles[idx] = { ...puzzles[idx], ...updates };
+      await storage.setPuzzles(puzzles);
+    }
   },
 
   async getLastGenerated(): Promise<number | null> {

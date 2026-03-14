@@ -68,7 +68,7 @@ export default function DashboardScreen() {
       }
 
       setGenState('analyzing');
-      setGenProgress(`Analyzing ${Math.min(games.length, 15)} games…`);
+      setGenProgress(`Analyzing ${Math.min(games.length, 10)} games…`);
 
       const puzzles = await generatePuzzles(games, username);
 

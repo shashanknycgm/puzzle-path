@@ -6,11 +6,12 @@ import {
   StyleSheet,
   ScrollView,
   Animated,
+  ActivityIndicator,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import ChessBoard, { type MoveInfo } from '../../components/ChessBoard';
 import { storage, type Puzzle } from '../../services/storage';
-import { uciToSan } from '../../services/puzzleGenerator';
+import { uciToSan, enrichPuzzle } from '../../services/puzzleGenerator';
 
 type Feedback = 'correct' | 'wrong' | null;
 
@@ -19,27 +20,53 @@ export default function PuzzleDetailScreen() {
   const router = useRouter();
 
   const [puzzle, setPuzzle] = useState<Puzzle | null>(null);
+  const [enriching, setEnriching] = useState(true); // loading until depth-3 done
   const [attempts, setAttempts] = useState(0);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const [revealed, setRevealed] = useState(false);
   const [solved, setSolved] = useState(false);
-  const [boardKey, setBoardKey] = useState(0); // force remount to reset board
+  const [boardKey, setBoardKey] = useState(0);
   const [correctSan, setCorrectSan] = useState('');
 
   const feedbackAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    const loadPuzzle = async () => {
+    const loadAndEnrich = async () => {
       const puzzles = await storage.getPuzzles();
       const found = puzzles.find((p) => p.id === decodeURIComponent(id));
-      if (found) {
+      if (!found) return;
+
+      // If already enriched (e.g. background pre-compute finished), show immediately
+      if (found.enriched) {
         setPuzzle(found);
-        const san = uciToSan(found.fen, found.correctMove);
-        setCorrectSan(san || found.correctMove);
+        setCorrectSan(uciToSan(found.fen, found.correctMove) || found.correctMove);
+        setEnriching(false);
+        backgroundEnrichRest(puzzles, found.id);
+        return;
       }
+
+      // Enrich this puzzle now (depth-3, ~2-3s)
+      const enriched = await enrichPuzzle(found);
+      await storage.updatePuzzle(enriched.id, { correctMove: enriched.correctMove, enriched: true });
+      setPuzzle(enriched);
+      setCorrectSan(uciToSan(enriched.fen, enriched.correctMove) || enriched.correctMove);
+      setEnriching(false);
+
+      // Pre-compute remaining puzzles in the background while user solves this one
+      backgroundEnrichRest(puzzles, enriched.id);
     };
-    loadPuzzle();
+
+    loadAndEnrich();
   }, [id]);
+
+  /** Silently enrich all unenriched puzzles except the current one. */
+  const backgroundEnrichRest = async (puzzles: Puzzle[], currentId: string) => {
+    for (const p of puzzles) {
+      if (p.id === currentId || p.enriched) continue;
+      const enriched = await enrichPuzzle(p);
+      await storage.updatePuzzle(enriched.id, { correctMove: enriched.correctMove, enriched: true });
+    }
+  };
 
   const flashFeedback = (type: Feedback) => {
     setFeedback(type);
@@ -57,7 +84,7 @@ export default function PuzzleDetailScreen() {
     if (!puzzle || solved || revealed) return;
 
     const playedUci = `${from}${to}`;
-    const correctUci = puzzle.correctMove.slice(0, 4); // first 4 chars (ignore promotion for now)
+    const correctUci = puzzle.correctMove.slice(0, 4);
 
     const isCorrect = playedUci === correctUci;
 
@@ -74,7 +101,6 @@ export default function PuzzleDetailScreen() {
         setRevealed(true);
         await storage.updatePuzzleResult(puzzle.id, 'failed');
       } else {
-        // Reset board after a short delay
         setTimeout(() => {
           setBoardKey((k) => k + 1);
           setFeedback(null);
@@ -94,10 +120,20 @@ export default function PuzzleDetailScreen() {
     if (puzzle) storage.updatePuzzleResult(puzzle.id, 'failed');
   };
 
-  if (!puzzle) {
+  if (!puzzle && !enriching) {
     return (
       <View style={styles.center}>
         <Text style={styles.missingText}>Puzzle not found.</Text>
+      </View>
+    );
+  }
+
+  // Show full-screen loader while enriching (before puzzle is ready)
+  if (enriching || !puzzle) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator color="#1B7A3E" size="large" />
+        <Text style={styles.enrichingText}>Analyzing position…</Text>
       </View>
     );
   }
@@ -201,8 +237,9 @@ export default function PuzzleDetailScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#F5F5F0' },
   scroll: { paddingBottom: 40 },
-  center: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  center: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
   missingText: { color: '#666' },
+  enrichingText: { marginTop: 14, fontSize: 15, color: '#666' },
 
   context: {
     paddingHorizontal: 20,
