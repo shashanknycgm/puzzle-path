@@ -205,8 +205,14 @@ export function generatePuzzlesSync(
   return puzzles.sort((a, b) => b.evalDrop - a.evalDrop).slice(0, maxPuzzles);
 }
 
+/** Yield the JS thread so the UI can update between heavy computations. */
+function yieldThread(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0));
+}
+
 /**
  * Generate up to maxPuzzles, enriching correctMove with local alpha-beta depth-3.
+ * Yields between each puzzle to keep the UI responsive.
  */
 export async function generatePuzzles(
   games: ChessComGame[],
@@ -217,6 +223,7 @@ export async function generatePuzzles(
   const puzzles = generatePuzzlesSync(games, username, maxPuzzles);
 
   for (const puzzle of puzzles) {
+    await yieldThread(); // let spinner animate between each puzzle analysis
     const best = localEvaluate(puzzle.fen, 3);
     if (best.bestMove) puzzle.correctMove = best.bestMove;
   }
