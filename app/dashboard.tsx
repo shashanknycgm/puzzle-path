@@ -1,5 +1,4 @@
-import React, { useState, useCallback } from 'react';
-import { useFocusEffect } from 'expo-router';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -10,6 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
 import { generatePuzzles } from '../services/puzzleGenerator';
 import { storage } from '../services/storage';
