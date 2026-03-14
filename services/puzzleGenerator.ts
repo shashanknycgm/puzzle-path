@@ -206,26 +206,7 @@ export function generatePuzzlesSync(
 }
 
 /**
- * Fetch the best move for a position from Lichess cloud eval (real Stockfish, depth ~22).
- * Returns UCI string e.g. "e2e4", or null if unavailable.
- */
-async function lichessCloudEval(fen: string): Promise<string | null> {
-  try {
-    const url = `https://lichess.org/api/cloud-eval?fen=${encodeURIComponent(fen)}&multiPv=1`;
-    const res = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!res.ok) return null;
-    const data = await res.json();
-    const firstMove: string | undefined = data?.pvs?.[0]?.moves?.split(' ')?.[0];
-    return firstMove ?? null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Generate up to maxPuzzles, enriching correctMove with:
- *   1. Lichess cloud eval (real Stockfish, depth ~22) if the position is cached
- *   2. Local alpha-beta depth-3 otherwise
+ * Generate up to maxPuzzles, enriching correctMove with local alpha-beta depth-3.
  */
 export async function generatePuzzles(
   games: ChessComGame[],
@@ -235,22 +216,10 @@ export async function generatePuzzles(
 ): Promise<Puzzle[]> {
   const puzzles = generatePuzzlesSync(games, username, maxPuzzles);
 
-  // Enrich each puzzle's correctMove with the best available analysis
-  await Promise.all(
-    puzzles.map(async (puzzle) => {
-      // Try Lichess cloud eval first (free, depth ~22, but only cached positions)
-      const lichessMove = await lichessCloudEval(puzzle.fen);
-      if (lichessMove) {
-        puzzle.correctMove = lichessMove;
-      } else {
-        // Fall back to local alpha-beta depth-3 (finds tactics, no network needed)
-        const local = localEvaluate(puzzle.fen, 3);
-        if (local.bestMove) {
-          puzzle.correctMove = local.bestMove;
-        }
-      }
-    })
-  );
+  for (const puzzle of puzzles) {
+    const best = localEvaluate(puzzle.fen, 3);
+    if (best.bestMove) puzzle.correctMove = best.bestMove;
+  }
 
   return puzzles;
 }
