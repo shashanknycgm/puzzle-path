@@ -15,13 +15,15 @@ interface Props {
   onMove?: (info: MoveInfo) => void;
   gestureEnabled?: boolean;
   highlightSquares?: { from: string; to: string };
+  flipped?: boolean;
 }
 
 function buildHTML(
   fen: string,
   gestureEnabled: boolean,
   legalMoves: { from: string; to: string }[],
-  hl?: { from: string; to: string }
+  hl?: { from: string; to: string },
+  flipped = false
 ): string {
   return `<!DOCTYPE html>
 <html>
@@ -40,14 +42,20 @@ html,body{width:100%;height:100%;overflow:hidden;}
 <body>
 <div id="b"></div>
 <script>
+// F/R are the canonical board-array axes (never change)
 const F='abcdefgh'.split('');
-const R='87654321'.split('');
+const R='87654321'.split(''); // R[0]='8' → board[0] = rank 8
 const BASE=${JSON.stringify(PIECE_BASE)};
 const fen=${JSON.stringify(fen)};
 const ge=${gestureEnabled};
 const lm=${JSON.stringify(legalMoves)};
 const hl=${JSON.stringify(hl ?? null)};
+const flipped=${flipped};
 const turn=fen.split(' ')[1]||'w';
+
+// Display order depends on orientation
+const dRanks=flipped?['1','2','3','4','5','6','7','8']:['8','7','6','5','4','3','2','1'];
+const dFiles=flipped?['h','g','f','e','d','c','b','a']:['a','b','c','d','e','f','g','h'];
 
 function parseFen(f){
   return f.split(' ')[0].split('/').map(row=>{
@@ -72,9 +80,12 @@ function pieceUrl(pc){
 function render(){
   const b=document.getElementById('b');
   b.innerHTML='';
-  R.forEach((rank,ri)=>{
-    F.forEach((file,fi)=>{
+  dRanks.forEach((rank)=>{
+    dFiles.forEach((file)=>{
       const sq=file+rank;
+      // Use canonical indices for board lookup and square-color math
+      const fi=F.indexOf(file);
+      const ri=R.indexOf(rank);
       const light=(fi+ri)%2===0;
       const pc=board[ri][fi];
       const isSel=sel===sq;
@@ -140,7 +151,7 @@ render();
 </html>`;
 }
 
-export default function ChessBoard({ fen, onMove, gestureEnabled = true, highlightSquares }: Props) {
+export default function ChessBoard({ fen, onMove, gestureEnabled = true, highlightSquares, flipped = false }: Props) {
   const legalMoves = React.useMemo(() => {
     try {
       const chess = new Chess(fen);
@@ -150,7 +161,7 @@ export default function ChessBoard({ fen, onMove, gestureEnabled = true, highlig
     }
   }, [fen]);
 
-  const html = buildHTML(fen, gestureEnabled, legalMoves, highlightSquares);
+  const html = buildHTML(fen, gestureEnabled, legalMoves, highlightSquares, flipped);
 
   return (
     <View style={styles.container}>

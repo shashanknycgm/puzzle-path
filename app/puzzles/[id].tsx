@@ -150,6 +150,7 @@ export default function PuzzleDetailScreen() {
           fen={puzzle.fen}
           onMove={handleMove}
           gestureEnabled={!solved && !revealed}
+          flipped={puzzle.color === 'black'}
           highlightSquares={
             (revealed || solved)
               ? { from: puzzle.correctMove.slice(0, 2), to: puzzle.correctMove.slice(2, 4) }
