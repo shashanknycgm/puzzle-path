@@ -8,17 +8,11 @@ import {
   Animated,
 } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import Chessboard from 'react-native-chessboard';
-import type { Move } from 'chess.js';
+import ChessBoard, { type MoveInfo } from '../../components/ChessBoard';
 import { storage, type Puzzle } from '../../services/storage';
 import { uciToSan } from '../../services/puzzleGenerator';
 
 type Feedback = 'correct' | 'wrong' | null;
-
-type ChessMoveInfo = {
-  move: Move;
-  state: { in_promotion: boolean; [key: string]: any };
-};
 
 export default function PuzzleDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -59,10 +53,10 @@ export default function PuzzleDetailScreen() {
     });
   };
 
-  const handleMove = async ({ move }: ChessMoveInfo) => {
+  const handleMove = async ({ from, to }: MoveInfo) => {
     if (!puzzle || solved || revealed) return;
 
-    const playedUci = `${move.from}${move.to}`;
+    const playedUci = `${from}${to}`;
     const correctUci = puzzle.correctMove.slice(0, 4); // first 4 chars (ignore promotion for now)
 
     const isCorrect = playedUci === correctUci;
@@ -151,15 +145,16 @@ export default function PuzzleDetailScreen() {
 
       {/* Chessboard */}
       <View style={styles.boardWrapper}>
-        <Chessboard
-          key={boardKey}
+        <ChessBoard
+          key={`${boardKey}-${revealed ? 'r' : ''}-${solved ? 's' : ''}`}
           fen={puzzle.fen}
           onMove={handleMove}
           gestureEnabled={!solved && !revealed}
-          colors={{
-            black: '#769656',
-            white: '#EEEED2',
-          }}
+          highlightSquares={
+            (revealed || solved)
+              ? { from: puzzle.correctMove.slice(0, 2), to: puzzle.correctMove.slice(2, 4) }
+              : undefined
+          }
         />
       </View>
 

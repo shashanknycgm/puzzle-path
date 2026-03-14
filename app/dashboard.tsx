@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -12,13 +12,11 @@ import { useRouter } from 'expo-router';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
 import { generatePuzzles } from '../services/puzzleGenerator';
 import { storage } from '../services/storage';
-import StockfishEngine, { type StockfishRef } from '../components/StockfishEngine';
 
 type GenerationState = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
 
 export default function DashboardScreen() {
   const router = useRouter();
-  const engineRef = useRef<StockfishRef>(null);
 
   const [username, setUsername] = useState('');
   const [stats, setStats] = useState<GameStats | null>(null);
@@ -70,18 +68,9 @@ export default function DashboardScreen() {
       }
 
       setGenState('analyzing');
-      setGenProgress(`Analyzing ${Math.min(games.length, 10)} games with Stockfish…`);
+      setGenProgress(`Analyzing ${Math.min(games.length, 15)} games…`);
 
-      const puzzles = await generatePuzzles(
-        games,
-        username,
-        (fen) => {
-          if (!engineRef.current) {
-            return Promise.resolve({ fen, bestMove: 'e2e4', score: 0 });
-          }
-          return engineRef.current.evaluate(fen, 12);
-        }
-      );
+      const puzzles = await generatePuzzles(games, username);
 
       if (puzzles.length === 0) {
         setGenState('idle');
@@ -118,9 +107,6 @@ export default function DashboardScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Hidden Stockfish engine */}
-      <StockfishEngine ref={engineRef} />
-
       <ScrollView contentContainerStyle={styles.scroll}>
         {/* Header */}
         <View style={styles.header}>
@@ -162,7 +148,7 @@ export default function DashboardScreen() {
             <View style={styles.generatingContainer}>
               <ActivityIndicator color="#1B7A3E" size="large" />
               <Text style={styles.generatingText}>{genProgress}</Text>
-              <Text style={styles.generatingSubtext}>This may take 1–2 minutes…</Text>
+              <Text style={styles.generatingSubtext}>Usually takes just a few seconds…</Text>
             </View>
           ) : (
             <>
@@ -195,7 +181,7 @@ export default function DashboardScreen() {
         <View style={[styles.card, styles.howCard]}>
           <Text style={styles.cardTitle}>How It Works</Text>
           <Step n="1" text="Fetches your last 14 days of games from chess.com" />
-          <Step n="2" text="Stockfish engine finds your biggest blunders" />
+          <Step n="2" text="Analyzes your moves to find your biggest blunders" />
           <Step n="3" text="You get 5 puzzles to practice those exact positions" />
         </View>
       </ScrollView>

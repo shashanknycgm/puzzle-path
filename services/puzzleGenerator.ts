@@ -1,9 +1,15 @@
 import { Chess } from 'chess.js';
+import type { Move } from 'chess.js';
 import type { ChessComGame } from './chesscom';
 import type { Puzzle } from './storage';
 
 // Minimum eval drop (centipawns) to count as a blunder worth making a puzzle
 const BLUNDER_THRESHOLD = 150;
+
+// Standard piece values in centipawns
+const PIECE_VALUES: Record<string, number> = {
+  p: 100, n: 320, b: 330, r: 500, q: 900, k: 0,
+};
 
 export interface PositionEval {
   fen: string;
@@ -12,27 +18,70 @@ export interface PositionEval {
 }
 
 /**
- * Given a game and a callback to evaluate positions with Stockfish,
- * find the worst blunder made by `username` and return a Puzzle.
+ * Fast local evaluation using 1-ply material search.
+ * Finds the move that maximizes material gain (captures + positional hints).
+ * Runs synchronously in JS — no network or WASM needed.
  */
-export async function extractPuzzleFromGame(
+export function localEvaluate(fen: string): PositionEval {
+  const chess = new Chess(fen);
+  const moves = chess.moves({ verbose: true });
+
+  if (moves.length === 0) {
+    const score = chess.isCheckmate() ? (chess.turn() === 'w' ? -30000 : 30000) : 0;
+    return { fen, bestMove: '', score };
+  }
+
+  const isWhiteTurn = chess.turn() === 'w';
+  let bestMove = moves[0];
+  let bestScore = -Infinity;
+
+  for (const move of moves) {
+    chess.move(move);
+
+    // 1-ply: score = our material - their material after this move
+    let score = 0;
+    const board = chess.board();
+    for (const row of board) {
+      for (const sq of row) {
+        if (!sq) continue;
+        const val = PIECE_VALUES[sq.type] ?? 0;
+        score += sq.color === 'w' ? val : -val;
+      }
+    }
+
+    // Flip sign if we're evaluating for black (we want best for current player)
+    const playerScore = isWhiteTurn ? score : -score;
+
+    if (playerScore > bestScore) {
+      bestScore = playerScore;
+      bestMove = move;
+    }
+
+    chess.undo();
+  }
+
+  // Final score from white's perspective
+  const finalScore = isWhiteTurn ? bestScore : -bestScore;
+  const uciMove = `${bestMove.from}${bestMove.to}${bestMove.promotion ?? ''}`;
+
+  return { fen, bestMove: uciMove, score: finalScore };
+}
+
+/**
+ * Given a game, find the worst blunder made by `username`.
+ * Uses localEvaluate — runs entirely in JS, no engine needed.
+ */
+export function extractPuzzleFromGame(
   game: ChessComGame,
   username: string,
-  evaluatePosition: (fen: string) => Promise<PositionEval>
-): Promise<Puzzle | null> {
+): Puzzle | null {
   try {
     const chess = new Chess();
-
-    // Strip headers from PGN for cleaner loading
-    const pgnBody = game.pgn;
-    chess.loadPgn(pgnBody);
-
+    chess.loadPgn(game.pgn);
     const history = chess.history({ verbose: true });
-    if (history.length < 6) return null; // too short
+    if (history.length < 10) return null;
 
     const isWhite = game.white.username.toLowerCase() === username.toLowerCase();
-
-    // Replay moves and find our worst blunder
     const replayChess = new Chess();
     let worstBlunder: Puzzle | null = null;
     let worstDrop = BLUNDER_THRESHOLD;
@@ -40,25 +89,22 @@ export async function extractPuzzleFromGame(
     for (let i = 0; i < history.length - 1; i++) {
       const move = history[i];
 
-      // Only check the player's moves
+      // Only check the player's moves; skip first 5 moves (opening)
       const isMyMove = isWhite ? i % 2 === 0 : i % 2 === 1;
-      if (!isMyMove) {
+      if (!isMyMove || i < 10) {
         replayChess.move(move);
         continue;
       }
 
-      // Evaluate position BEFORE the player's move
       const fenBefore = replayChess.fen();
-      const evalBefore = await evaluatePosition(fenBefore);
+      const evalBefore = localEvaluate(fenBefore);
 
-      // Make the move
       replayChess.move(move);
 
-      // Evaluate position AFTER the player's move
       const fenAfter = replayChess.fen();
-      const evalAfter = await evaluatePosition(fenAfter);
+      const evalAfter = localEvaluate(fenAfter);
 
-      // Calculate eval drop from player's perspective
+      // Eval drop from the player's perspective
       const scoreBefore = isWhite ? evalBefore.score : -evalBefore.score;
       const scoreAfter = isWhite ? evalAfter.score : -evalAfter.score;
       const drop = scoreBefore - scoreAfter;
@@ -85,31 +131,37 @@ export async function extractPuzzleFromGame(
 }
 
 /**
- * From a list of games, extract up to `maxPuzzles` puzzles (one per game max).
- * Games are analyzed in order; we pick the worst blunder from each game.
+ * Generate up to maxPuzzles from recent games.
+ * Runs synchronously — no await needed.
  */
-export async function generatePuzzles(
+export function generatePuzzlesSync(
   games: ChessComGame[],
   username: string,
-  evaluatePosition: (fen: string) => Promise<PositionEval>,
   maxPuzzles = 5
-): Promise<Puzzle[]> {
+): Puzzle[] {
   const puzzles: Puzzle[] = [];
-  const gamesToAnalyze = games.slice(0, 10); // cap at 10 games for performance
 
-  for (const game of gamesToAnalyze) {
+  for (const game of games.slice(0, 15)) {
     if (puzzles.length >= maxPuzzles) break;
-    const puzzle = await extractPuzzleFromGame(game, username, evaluatePosition);
+    const puzzle = extractPuzzleFromGame(game, username);
     if (puzzle) puzzles.push(puzzle);
   }
 
-  // Sort by worst blunder first
   return puzzles.sort((a, b) => b.evalDrop - a.evalDrop).slice(0, maxPuzzles);
+}
+
+// Keep async version for backward compat
+export async function generatePuzzles(
+  games: ChessComGame[],
+  username: string,
+  _evaluatePosition?: (fen: string) => Promise<PositionEval>,
+  maxPuzzles = 5
+): Promise<Puzzle[]> {
+  return generatePuzzlesSync(games, username, maxPuzzles);
 }
 
 /**
  * Convert a UCI move (e.g. "e2e4", "e7e8q") to SAN for display.
- * Returns null if the move is invalid for the given FEN.
  */
 export function uciToSan(fen: string, uciMove: string): string | null {
   try {
