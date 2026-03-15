@@ -12,7 +12,7 @@ import {
 import { useRouter } from 'expo-router';
 import { useFocusEffect } from '@react-navigation/native';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
-import { generatePuzzlesProgressive } from '../services/puzzleGenerator';
+import { generatePuzzlesProgressive, enrichPuzzle } from '../services/puzzleGenerator';
 import { storage } from '../services/storage';
 
 type GenerationState = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
@@ -116,6 +116,19 @@ export default function DashboardScreen() {
       setGenState('done');
 
       router.push('/puzzles');
+
+      // Background deep enrichment: upgrade all puzzles to depth-3 + quiescence
+      // one at a time so the JS thread isn't hogged. Runs silently after navigation.
+      (async () => {
+        for (const puzzle of collected) {
+          try {
+            const deep = await enrichPuzzle(puzzle, 3);
+            await storage.updatePuzzle(deep.id, { correctMove: deep.correctMove, enriched: true });
+          } catch {
+            // non-fatal — puzzle will fall back to depth-2 on open
+          }
+        }
+      })();
     } catch {
       setGenState('error');
       Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -234,7 +247,7 @@ export default function DashboardScreen() {
         {/* How it works */}
         <View style={[styles.card, styles.howCard]}>
           <Text style={styles.cardTitle}>How It Works</Text>
-          <Step n="1" text="Fetches your last 14 days of games from chess.com" />
+          <Step n="1" text="Fetches your last 10 games from chess.com" />
           <Step n="2" text="Analyzes your moves to find your biggest blunders" />
           <Step n="3" text="You get 5 puzzles to practice those exact positions" />
         </View>

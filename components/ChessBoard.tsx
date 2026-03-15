@@ -38,6 +38,9 @@ html,body{width:100%;height:100%;overflow:hidden;}
 .pi{width:100%;height:100%;object-fit:contain;pointer-events:none;display:block;}
 .dot{width:30%;height:30%;background:rgba(0,0,0,0.22);border-radius:50%;z-index:1;}
 .ring{position:absolute;inset:0;border:min(7px,1.6vw) solid rgba(0,0,0,0.28);border-radius:50%;z-index:2;pointer-events:none;}
+.coord{position:absolute;font-size:min(2.8vw,11px);font-weight:700;line-height:1;pointer-events:none;z-index:4;}
+.coord-file{bottom:1px;right:2px;}
+.coord-rank{top:1px;left:2px;}
 </style>
 </head>
 <body>
@@ -75,6 +78,9 @@ function pieceUrl(pc){
   const isW=pc>='A'&&pc<='Z';
   return BASE+'/'+(isW?'w':'b')+pc.toUpperCase()+'.svg';
 }
+
+const bottomRank=dRanks[dRanks.length-1];
+const leftFile=dFiles[0];
 
 function render(){
   const b=document.getElementById('b');
@@ -116,6 +122,23 @@ function render(){
         const dot=document.createElement('div');
         dot.className='dot';
         d.appendChild(dot);
+      }
+
+      // Coordinate labels on edge squares
+      const coordColor=light?'#b58863':'#f0d9b5';
+      if(rank===bottomRank){
+        const fc=document.createElement('span');
+        fc.className='coord coord-file';
+        fc.textContent=file;
+        fc.style.color=coordColor;
+        d.appendChild(fc);
+      }
+      if(file===leftFile){
+        const rc=document.createElement('span');
+        rc.className='coord coord-rank';
+        rc.textContent=rank;
+        rc.style.color=coordColor;
+        d.appendChild(rc);
       }
 
       d.onclick=()=>tap(sq);

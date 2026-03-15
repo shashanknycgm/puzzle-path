@@ -171,12 +171,15 @@ export function localEvaluate(fen: string, depth = 3, useQuiescence = false): Po
 }
 
 /**
- * Enrich a single puzzle's correctMove with depth-2 alpha-beta (~100ms).
+ * Enrich a single puzzle's correctMove using alpha-beta.
+ * depth=2 (~100ms, default for on-open fallback).
+ * depth=3 + quiescence (~300ms, used for background deep enrichment).
  * Yields the thread first so the caller can update UI before computing.
  */
-export async function enrichPuzzle(puzzle: Puzzle): Promise<Puzzle> {
+export async function enrichPuzzle(puzzle: Puzzle, depth = 2): Promise<Puzzle> {
   await new Promise(resolve => setTimeout(resolve, 0));
-  const best = localEvaluate(puzzle.fen, 2);
+  const useQ = depth >= 3;
+  const best = localEvaluate(puzzle.fen, depth, useQ);
   return { ...puzzle, correctMove: best.bestMove || puzzle.correctMove, enriched: true };
 }
 
