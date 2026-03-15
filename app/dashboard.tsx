@@ -29,6 +29,7 @@ export default function DashboardScreen() {
   const [lastGenerated, setLastGenerated] = useState<Date | null>(null);
   const [puzzleCount, setPuzzleCount] = useState(0);
   const [blundersFound, setBlundersFound] = useState(0);
+  const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 1 });
   const progressAnim = useRef(new Animated.Value(0)).current;
 
   const load = useCallback(async () => {
@@ -79,6 +80,7 @@ export default function DashboardScreen() {
       }
 
       setBlundersFound(0);
+      setScanProgress({ scanned: 0, total: 1 });
       progressAnim.setValue(0);
       setGenState('analyzing');
       await new Promise(resolve => setTimeout(resolve, 50));
@@ -96,6 +98,7 @@ export default function DashboardScreen() {
             useNativeDriver: false,
           }).start();
         },
+        (scanned, total) => setScanProgress({ scanned, total }),
       );
 
       if (collected.length === 0) {
@@ -181,9 +184,8 @@ export default function DashboardScreen() {
               ) : (
                 <>
                   <Text style={styles.generatingText}>
-                    {blundersFound === 0
-                      ? 'Scanning your games…'
-                      : `${blundersFound} of 5 blunder${blundersFound !== 1 ? 's' : ''} found`}
+                    Analyzing game {scanProgress.scanned} of {scanProgress.total}
+                    {blundersFound > 0 ? `  ·  ${blundersFound} blunder${blundersFound !== 1 ? 's' : ''} found` : ''}
                   </Text>
                   <View style={styles.progressTrack}>
                     <Animated.View

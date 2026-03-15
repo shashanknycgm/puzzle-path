@@ -277,6 +277,8 @@ export async function generatePuzzlesProgressive(
     if (puzzle) {
       found++;
       await onPuzzleFound(puzzle);
+      // yield so animation frames can run before the next blocking scan
+      await new Promise(resolve => setTimeout(resolve, 40));
     }
     onProgress?.(i + 1, total);
   }
