@@ -93,7 +93,7 @@ export default function DashboardScreen() {
           collected.push(puzzle);
           setBlundersFound(collected.length);
           Animated.timing(progressAnim, {
-            toValue: collected.length / 2.5,
+            toValue: collected.length / 1.7,
             duration: 250,
             useNativeDriver: false,
           }).start();

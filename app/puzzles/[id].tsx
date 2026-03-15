@@ -12,6 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import ChessBoard, { type MoveInfo } from '../../components/ChessBoard';
 import { storage, type Puzzle } from '../../services/storage';
 import { uciToSan, enrichPuzzle } from '../../services/puzzleGenerator';
+import { getCoachAnalysis } from '../../services/aiCoach';
 
 type Feedback = 'correct' | 'wrong' | null;
 
@@ -27,6 +28,8 @@ export default function PuzzleDetailScreen() {
   const [solved, setSolved] = useState(false);
   const [boardKey, setBoardKey] = useState(0);
   const [correctSan, setCorrectSan] = useState('');
+  const [insight, setInsight] = useState<string | null>(null);
+  const [insightLoading, setInsightLoading] = useState(false);
 
   const feedbackAnim = useRef(new Animated.Value(0)).current;
 
@@ -56,6 +59,14 @@ export default function PuzzleDetailScreen() {
     loadAndEnrich();
   }, [id]);
 
+  const triggerInsight = (p: Puzzle, didSolve: boolean, san: string) => {
+    setInsightLoading(true);
+    getCoachAnalysis({ fen: p.fen, correctMoveSan: san, solved: didSolve, evalDrop: p.evalDrop })
+      .then(text => setInsight(text))
+      .catch(() => setInsight(null))
+      .finally(() => setInsightLoading(false));
+  };
+
   const flashFeedback = (type: Feedback) => {
     setFeedback(type);
     feedbackAnim.setValue(1);
@@ -79,6 +90,7 @@ export default function PuzzleDetailScreen() {
       flashFeedback('correct');
       setSolved(true);
       await storage.updatePuzzleResult(puzzle.id, 'solved');
+      triggerInsight(puzzle, true, correctSan);
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
@@ -87,6 +99,7 @@ export default function PuzzleDetailScreen() {
       if (newAttempts >= 3) {
         setRevealed(true);
         await storage.updatePuzzleResult(puzzle.id, 'failed');
+        triggerInsight(puzzle, false, correctSan);
       } else {
         setTimeout(() => {
           setBoardKey((k) => k + 1);
@@ -104,7 +117,10 @@ export default function PuzzleDetailScreen() {
 
   const handleReveal = () => {
     setRevealed(true);
-    if (puzzle) storage.updatePuzzleResult(puzzle.id, 'failed');
+    if (puzzle) {
+      storage.updatePuzzleResult(puzzle.id, 'failed');
+      triggerInsight(puzzle, false, correctSan);
+    }
   };
 
   if (!puzzle) {
@@ -187,6 +203,8 @@ export default function PuzzleDetailScreen() {
           <Text style={styles.resultIcon}>🎉</Text>
           <Text style={styles.resultTitle}>Puzzle Solved!</Text>
           <Text style={styles.resultSubtext}>The correct move was <Text style={styles.bold}>{correctSan}</Text></Text>
+          {insightLoading && <Text style={styles.insightLoading}>Analyzing…</Text>}
+          {insight && <Text style={styles.insightText}>{insight}</Text>}
           <TouchableOpacity style={styles.nextButton} onPress={() => router.back()} activeOpacity={0.8}>
             <Text style={styles.nextButtonText}>← Back to Puzzles</Text>
           </TouchableOpacity>
@@ -199,6 +217,8 @@ export default function PuzzleDetailScreen() {
           <Text style={styles.resultIcon}>📖</Text>
           <Text style={styles.resultTitle}>Solution</Text>
           <Text style={styles.resultSubtext}>The best move was <Text style={styles.bold}>{correctSan}</Text></Text>
+          {insightLoading && <Text style={styles.insightLoading}>Analyzing…</Text>}
+          {insight && <Text style={styles.insightText}>{insight}</Text>}
           <TouchableOpacity style={styles.nextButton} onPress={() => router.back()} activeOpacity={0.8}>
             <Text style={styles.nextButtonText}>← Back to Puzzles</Text>
           </TouchableOpacity>
@@ -276,6 +296,16 @@ const styles = StyleSheet.create({
   resultTitle: { fontSize: 20, fontWeight: '800', color: '#1a1a1a', marginBottom: 6 },
   resultSubtext: { fontSize: 15, color: '#444', marginBottom: 20 },
   bold: { fontWeight: '700' },
+  insightLoading: { fontSize: 13, color: '#888', fontStyle: 'italic', marginBottom: 14 },
+  insightText: {
+    fontSize: 14,
+    color: '#444',
+    lineHeight: 20,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    marginBottom: 16,
+    paddingHorizontal: 4,
+  },
   nextButton: {
     backgroundColor: '#1B7A3E',
     borderRadius: 12,
