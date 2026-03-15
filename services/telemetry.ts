@@ -11,13 +11,17 @@
 
 const API_KEY = process.env.EXPO_PUBLIC_HONEYCOMB_API_KEY ?? '';
 const DATASET = 'puzzle-path';
-const ENDPOINT = `https://api.honeycomb.io/1/events/${DATASET}`;
+// dogfood instance — standard accounts use https://api.honeycomb.io
+const ENDPOINT = `https://api-dogfood.honeycomb.io/1/events/${DATASET}`;
 
 type Fields = Record<string, string | number | boolean | null | undefined>;
 
 /** Send a single event to Honeycomb. Fire-and-forget — never throws. */
 export function track(name: string, fields?: Fields): void {
-  if (!API_KEY) return;
+  if (!API_KEY) {
+    console.warn('[telemetry] EXPO_PUBLIC_HONEYCOMB_API_KEY is not set — event dropped:', name);
+    return;
+  }
   fetch(ENDPOINT, {
     method: 'POST',
     headers: {
@@ -29,7 +33,13 @@ export function track(name: string, fields?: Fields): void {
       timestamp: new Date().toISOString(),
       ...fields,
     }),
-  }).catch(() => {}); // never let telemetry affect the app
+  })
+    .then(res => {
+      if (!res.ok) {
+        res.text().then(body => console.warn(`[telemetry] Honeycomb rejected event "${name}": ${res.status} ${body}`));
+      }
+    })
+    .catch(err => console.warn('[telemetry] Honeycomb fetch failed:', err));
 }
 
 /**
