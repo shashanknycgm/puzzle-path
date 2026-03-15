@@ -35,7 +35,7 @@ export async function getCoachAnalysis(params: CoachingParams): Promise<string> 
       'content-type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'claude-3-haiku-20240307',
+      model: 'claude-3-5-sonnet-20241022',
       max_tokens: 140,
       messages: [{ role: 'user', content: prompt }],
     }),
