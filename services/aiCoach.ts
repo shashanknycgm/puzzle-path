@@ -42,6 +42,8 @@ export async function getCoachAnalysis(params: CoachingParams): Promise<string> 
   });
 
   if (!response.ok) {
+    const body = await response.text();
+    console.error('[aiCoach] error body:', body);
     throw new Error(`Claude API error: ${response.status}`);
   }
 
