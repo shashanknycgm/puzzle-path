@@ -14,6 +14,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { getRecentGames, computeStats, type GameStats } from '../services/chesscom';
 import { generatePuzzlesProgressive } from '../services/puzzleGenerator';
 import { storage } from '../services/storage';
+import { startSpan, track } from '../services/telemetry';
 
 type GenerationState = 'idle' | 'fetching' | 'analyzing' | 'done' | 'error';
 
@@ -62,6 +63,7 @@ export default function DashboardScreen() {
   const handleGeneratePuzzles = async () => {
     if (isGenerating) return;
 
+    const genSpan = startSpan('puzzle.generation', { username });
     setGenState('fetching');
     setGenProgress('Fetching your recent games…');
     await new Promise(resolve => setTimeout(resolve, 50));
@@ -75,6 +77,7 @@ export default function DashboardScreen() {
 
       if (games.length === 0) {
         setGenState('idle');
+        genSpan.finish({ games_found: 0, puzzles_found: 0, aborted: true, reason: 'no_games' });
         Alert.alert('No Games Found', 'No games found in the last 14 days. Play some games on chess.com first!');
         return;
       }
@@ -103,6 +106,7 @@ export default function DashboardScreen() {
 
       if (collected.length === 0) {
         setGenState('idle');
+        genSpan.finish({ games_found: games.length, puzzles_found: 0, aborted: true, reason: 'no_blunders' });
         Alert.alert('No Puzzles Found', "No significant blunders found in your recent games. You're playing well!");
         return;
       }
@@ -114,10 +118,12 @@ export default function DashboardScreen() {
       setLastGenerated(new Date(now));
       setPuzzleCount(collected.length);
       setGenState('done');
+      genSpan.finish({ games_found: games.length, puzzles_found: collected.length, aborted: false });
 
       router.push('/puzzles');
-    } catch {
+    } catch (err) {
       setGenState('error');
+      genSpan.error(err, { games_found: cachedGames.length });
       Alert.alert('Error', 'Something went wrong. Please try again.');
     }
   };

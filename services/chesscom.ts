@@ -1,3 +1,5 @@
+import { startSpan } from './telemetry';
+
 const BASE = 'https://api.chess.com/pub';
 
 export interface ChessComGame {
@@ -31,6 +33,7 @@ export async function validateUsername(username: string): Promise<boolean> {
 }
 
 export async function getRecentGames(username: string, days = 14): Promise<ChessComGame[]> {
+  const span = startSpan('chesscom.fetch', { username, days });
   const cutoff = Date.now() / 1000 - days * 24 * 60 * 60;
 
   const now = new Date();
@@ -66,7 +69,9 @@ export async function getRecentGames(username: string, days = 14): Promise<Chess
   }
 
   // Sort newest first
-  return allGames.sort((a, b) => b.end_time - a.end_time);
+  const result = allGames.sort((a, b) => b.end_time - a.end_time);
+  span.finish({ game_count: result.length });
+  return result;
 }
 
 export function computeStats(games: ChessComGame[], username: string): GameStats {

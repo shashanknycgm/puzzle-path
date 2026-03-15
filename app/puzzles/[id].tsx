@@ -14,6 +14,7 @@ import { storage, type Puzzle } from '../../services/storage';
 import { uciToSan, enrichPuzzle } from '../../services/puzzleGenerator';
 import { engineEnrichPuzzle } from '../../services/chessEngineService';
 import { getCoachAnalysis } from '../../services/aiCoach';
+import { track, startSpan } from '../../services/telemetry';
 
 type Feedback = 'correct' | 'wrong' | null;
 
@@ -51,7 +52,9 @@ export default function PuzzleDetailScreen() {
       }
 
       // Phase 1: local depth-2 (~100ms) — unlocks board immediately
+      const phase1Span = startSpan('engine.phase1', { puzzle_id: found.id, eval_drop: found.evalDrop });
       const quick = await enrichPuzzle(found, 2);
+      phase1Span.finish({ best_move: quick.correctMove });
       await storage.updatePuzzle(quick.id, { correctMove: quick.correctMove, enriched: true });
       setPuzzle(quick);
       setCorrectSan(uciToSan(quick.fen, quick.correctMove) || quick.correctMove);
@@ -62,6 +65,13 @@ export default function PuzzleDetailScreen() {
       engineEnrichPuzzle(quick, 5).then(deep => {
         if (!deep.correctMove) return;
         storage.updatePuzzle(deep.id, { correctMove: deep.correctMove });
+        const upgraded = deep.correctMove !== quick.correctMove;
+        track('engine.phase2_complete', {
+          puzzle_id: deep.id,
+          best_move: deep.correctMove,
+          move_changed: upgraded,
+          applied_to_board: !attemptMadeRef.current,
+        });
         if (!attemptMadeRef.current) {
           setPuzzle(prev => prev ? { ...prev, correctMove: deep.correctMove } : prev);
           setCorrectSan(uciToSan(deep.fen, deep.correctMove) || deep.correctMove);
@@ -102,11 +112,23 @@ export default function PuzzleDetailScreen() {
     const playedUci = `${from}${to}`;
     const correctUci = puzzle.correctMove.slice(0, 4);
     const isCorrect = playedUci === correctUci;
+    const attemptNumber = attempts + 1;
+
+    track('puzzle.attempt', {
+      puzzle_id: puzzle.id,
+      attempt_number: isCorrect ? attempts + 1 : attemptNumber,
+      played_move: playedUci,
+      correct_move: correctUci,
+      is_correct: isCorrect,
+      eval_drop: puzzle.evalDrop,
+      color: puzzle.color,
+    });
 
     if (isCorrect) {
       flashFeedback('correct');
       setSolved(true);
       await storage.updatePuzzleResult(puzzle.id, 'solved');
+      track('puzzle.outcome', { puzzle_id: puzzle.id, outcome: 'solved', attempts: attemptNumber, eval_drop: puzzle.evalDrop });
       triggerInsight(puzzle, true, correctSan);
     } else {
       const newAttempts = attempts + 1;
@@ -116,6 +138,7 @@ export default function PuzzleDetailScreen() {
       if (newAttempts >= 3) {
         setRevealed(true);
         await storage.updatePuzzleResult(puzzle.id, 'failed');
+        track('puzzle.outcome', { puzzle_id: puzzle.id, outcome: 'failed', attempts: newAttempts, eval_drop: puzzle.evalDrop });
         triggerInsight(puzzle, false, correctSan);
       } else {
         setTimeout(() => {
@@ -129,6 +152,7 @@ export default function PuzzleDetailScreen() {
   const handleSkip = async () => {
     if (!puzzle) return;
     await storage.updatePuzzleResult(puzzle.id, 'skipped');
+    track('puzzle.outcome', { puzzle_id: puzzle.id, outcome: 'skipped', attempts, eval_drop: puzzle.evalDrop });
     router.back();
   };
 
@@ -136,6 +160,7 @@ export default function PuzzleDetailScreen() {
     setRevealed(true);
     if (puzzle) {
       storage.updatePuzzleResult(puzzle.id, 'failed');
+      track('puzzle.outcome', { puzzle_id: puzzle.id, outcome: 'revealed', attempts, eval_drop: puzzle.evalDrop });
       triggerInsight(puzzle, false, correctSan);
     }
   };

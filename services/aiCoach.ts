@@ -1,4 +1,5 @@
 import { Chess } from 'chess.js';
+import { startSpan } from './telemetry';
 
 const API_KEY = process.env.EXPO_PUBLIC_CLAUDE_API_KEY ?? '';
 console.log('[aiCoach] key loaded, length:', API_KEY.length);
@@ -63,6 +64,7 @@ function describeMoveContext(fen: string, moveSan: string): string {
 export async function getCoachAnalysis(params: CoachingParams): Promise<string> {
   const { fen, correctMoveSan, solved, evalDrop } = params;
   const evalPawns = (evalDrop / 100).toFixed(1);
+  const span = startSpan('ai_coach.request', { solved, eval_drop: evalDrop, move: correctMoveSan });
 
   const positionContext = describeMoveContext(fen, correctMoveSan);
 
@@ -96,9 +98,13 @@ export async function getCoachAnalysis(params: CoachingParams): Promise<string> 
   if (!response.ok) {
     const body = await response.text();
     console.error('[aiCoach] error body:', body);
-    throw new Error(`Claude API error: ${response.status}`);
+    const err = new Error(`Claude API error: ${response.status}`);
+    span.error(err, { status_code: response.status });
+    throw err;
   }
 
   const data = await response.json();
-  return (data.content?.[0]?.text ?? '').trim();
+  const text = (data.content?.[0]?.text ?? '').trim();
+  span.finish({ response_length: text.length });
+  return text;
 }
