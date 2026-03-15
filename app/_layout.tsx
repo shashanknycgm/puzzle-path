@@ -2,10 +2,14 @@ import 'react-native-gesture-handler';
 import { Stack } from 'expo-router';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StyleSheet } from 'react-native';
+import ChessEngineWebView from '../components/ChessEngineWebView';
+import { chessEngineRef } from '../services/chessEngineService';
 
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={styles.root}>
+      {/* Hidden off-thread chess engine — stays alive for the entire app session */}
+      <ChessEngineWebView ref={chessEngineRef as any} />
       <Stack
         screenOptions={{
           headerStyle: { backgroundColor: '#1B7A3E' },

@@ -178,7 +178,7 @@ export function localEvaluate(fen: string, depth = 3, useQuiescence = false): Po
  */
 export async function enrichPuzzle(puzzle: Puzzle, depth = 2): Promise<Puzzle> {
   await new Promise(resolve => setTimeout(resolve, 0));
-  const useQ = depth >= 3;
+  const useQ = depth > 3;
   const best = localEvaluate(puzzle.fen, depth, useQ);
   return { ...puzzle, correctMove: best.bestMove || puzzle.correctMove, enriched: true };
 }

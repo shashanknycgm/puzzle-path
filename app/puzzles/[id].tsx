@@ -12,6 +12,7 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import ChessBoard, { type MoveInfo } from '../../components/ChessBoard';
 import { storage, type Puzzle } from '../../services/storage';
 import { uciToSan, enrichPuzzle } from '../../services/puzzleGenerator';
+import { engineEnrichPuzzle } from '../../services/chessEngineService';
 import { getCoachAnalysis } from '../../services/aiCoach';
 
 type Feedback = 'correct' | 'wrong' | null;
@@ -32,6 +33,7 @@ export default function PuzzleDetailScreen() {
   const [insightLoading, setInsightLoading] = useState(false);
 
   const feedbackAnim = useRef(new Animated.Value(0)).current;
+  const attemptMadeRef = useRef(false);
 
   useEffect(() => {
     const loadAndEnrich = async () => {
@@ -48,12 +50,23 @@ export default function PuzzleDetailScreen() {
         return;
       }
 
-      // Enrich this puzzle (depth-2, ~100ms) then enable interaction
-      const enriched = await enrichPuzzle(found);
-      await storage.updatePuzzle(enriched.id, { correctMove: enriched.correctMove, enriched: true });
-      setPuzzle(enriched);
-      setCorrectSan(uciToSan(enriched.fen, enriched.correctMove) || enriched.correctMove);
-      setEnriching(false);
+      // Phase 1: local depth-2 (~100ms) — unlocks board immediately
+      const quick = await enrichPuzzle(found, 2);
+      await storage.updatePuzzle(quick.id, { correctMove: quick.correctMove, enriched: true });
+      setPuzzle(quick);
+      setCorrectSan(uciToSan(quick.fen, quick.correctMove) || quick.correctMove);
+      setEnriching(false); // board is interactive now
+
+      // Phase 2: WebView depth-5 in background — silently upgrade if user hasn't moved yet
+      // depth-5 completes in 1–5 s for virtually all positions; depth-8 regularly times out
+      engineEnrichPuzzle(quick, 5).then(deep => {
+        if (!deep.correctMove) return;
+        storage.updatePuzzle(deep.id, { correctMove: deep.correctMove });
+        if (!attemptMadeRef.current) {
+          setPuzzle(prev => prev ? { ...prev, correctMove: deep.correctMove } : prev);
+          setCorrectSan(uciToSan(deep.fen, deep.correctMove) || deep.correctMove);
+        }
+      }).catch(() => {});
     };
 
     loadAndEnrich();
@@ -84,6 +97,7 @@ export default function PuzzleDetailScreen() {
 
   const handleMove = async ({ from, to }: MoveInfo) => {
     if (!puzzle || solved || revealed || enriching) return;
+    attemptMadeRef.current = true;
 
     const playedUci = `${from}${to}`;
     const correctUci = puzzle.correctMove.slice(0, 4);
