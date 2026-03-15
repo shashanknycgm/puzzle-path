@@ -28,7 +28,6 @@ export default function DashboardScreen() {
   const [genProgress, setGenProgress] = useState('');
   const [lastGenerated, setLastGenerated] = useState<Date | null>(null);
   const [puzzleCount, setPuzzleCount] = useState(0);
-  const [scanProgress, setScanProgress] = useState({ scanned: 0, total: 1 });
   const [blundersFound, setBlundersFound] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
@@ -79,7 +78,6 @@ export default function DashboardScreen() {
         return;
       }
 
-      setScanProgress({ scanned: 0, total: 1 });
       setBlundersFound(0);
       progressAnim.setValue(0);
       setGenState('analyzing');
@@ -92,12 +90,9 @@ export default function DashboardScreen() {
         async (puzzle) => {
           collected.push(puzzle);
           setBlundersFound(collected.length);
-        },
-        (scanned, total) => {
-          setScanProgress({ scanned, total });
           Animated.timing(progressAnim, {
-            toValue: scanned / total,
-            duration: 200,
+            toValue: collected.length / 5,
+            duration: 250,
             useNativeDriver: false,
           }).start();
         },
@@ -186,8 +181,9 @@ export default function DashboardScreen() {
               ) : (
                 <>
                   <Text style={styles.generatingText}>
-                    Analyzing game {scanProgress.scanned} of {scanProgress.total}
-                    {blundersFound > 0 ? `  ·  ${blundersFound} blunder${blundersFound !== 1 ? 's' : ''} found` : ''}
+                    {blundersFound === 0
+                      ? 'Scanning your games…'
+                      : `${blundersFound} of 5 blunder${blundersFound !== 1 ? 's' : ''} found`}
                   </Text>
                   <View style={styles.progressTrack}>
                     <Animated.View
