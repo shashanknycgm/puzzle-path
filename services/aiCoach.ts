@@ -1,4 +1,5 @@
 const API_KEY = process.env.EXPO_PUBLIC_CLAUDE_API_KEY ?? '';
+console.log('[aiCoach] key loaded, length:', API_KEY.length);
 
 export interface CoachingParams {
   fen: string;

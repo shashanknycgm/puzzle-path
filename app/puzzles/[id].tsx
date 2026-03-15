@@ -63,7 +63,10 @@ export default function PuzzleDetailScreen() {
     setInsightLoading(true);
     getCoachAnalysis({ fen: p.fen, correctMoveSan: san, solved: didSolve, evalDrop: p.evalDrop })
       .then(text => setInsight(text))
-      .catch(() => setInsight(null))
+      .catch((err) => {
+        console.error('[triggerInsight] failed:', err);
+        setInsight('Coach unavailable right now.');
+      })
       .finally(() => setInsightLoading(false));
   };
 
